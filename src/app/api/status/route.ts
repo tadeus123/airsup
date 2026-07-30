@@ -14,10 +14,14 @@ export async function GET(request: Request) {
       "Airsup connects your website to a real agent. Supi is the on-site agent ChatGPT and visitors discover.",
     nowDoing: connection.connected
       ? `Supi is connected for ${connection.websiteDomain} and ready for conversations.`
-      : "Waiting for setup: enter website domain + agent secret on the home page to activate Supi.",
+      : "Waiting for setup: enter website domain + AI API key on the home page to activate Supi.",
     connected: connection.connected,
     websiteDomain: connection.websiteDomain,
-    backend: connection.connected ? "webhook" : "builtin",
+    backend: connection.connected
+      ? connection.agentWebhookUrl
+        ? "webhook"
+        : "openai"
+      : "builtin",
     storage,
     chatUrl: `${origin}/agent/chat`,
     setupUrl: `${origin}/`,

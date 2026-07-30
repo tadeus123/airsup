@@ -32,7 +32,11 @@ function fromEnv(): Connection | null {
     .replace(/\/$/, "")
     .toLowerCase();
   const agentWebhookUrl = (process.env.AGENT_WEBHOOK_URL ?? "").trim();
-  const agentSecret = (process.env.AGENT_SECRET ?? "").trim();
+  const agentSecret = (
+    process.env.AGENT_SECRET ??
+    process.env.OPENAI_API_KEY ??
+    ""
+  ).trim();
   if (!websiteDomain && !agentWebhookUrl && !agentSecret) return null;
   return {
     websiteDomain,
@@ -89,7 +93,7 @@ export async function saveConnection(input: {
   ).trim();
   const agentSecret = input.agentSecret.trim();
   if (!websiteDomain) throw new Error("Website domain is required");
-  if (!agentSecret) throw new Error("Agent secret is required");
+  if (!agentSecret) throw new Error("API key is required");
 
   const connection: Connection = {
     websiteDomain,
@@ -138,9 +142,9 @@ export async function callRealAgent(
   message: string,
   ids: { taskId?: string; contextId?: string } = {}
 ): Promise<{ reply: string; kind: string; taskId?: string; contextId?: string; backend: string }> {
-  if (!connection.connected || !connection.agentWebhookUrl || !connection.agentSecret) {
+  if (!connection.connected || !connection.agentSecret) {
     return {
-      reply: `Supi (Airsup) is online, but no real agent is connected yet for ${connection.websiteDomain || "your website"}. Open the setup page, enter your website domain, webhook URL, and agent secret, then Connect.`,
+      reply: `Supi is online for ${connection.websiteDomain || "your website"}, but no AI API key is connected yet. Finish setup on the Airsup home page.`,
       kind: "completed",
       backend: "builtin",
     };
@@ -148,54 +152,100 @@ export async function callRealAgent(
 
   const taskId = ids.taskId || randomUUID();
   const contextId = ids.contextId || randomUUID();
-  const body = {
-    protocolVersion: "1.0",
-    requestId: randomUUID(),
-    message: {
-      messageId: randomUUID(),
-      taskId,
-      contextId,
-      text: message,
-      data: null,
-      files: [],
-    },
-    principal: null,
-    requestedOutputModes: ["text/plain", "application/json"],
-  };
-  const rawBody = JSON.stringify(body);
-  const timestamp = String(Date.now());
-  const nonce = randomUUID();
-  const signature = sign(connection.agentSecret, timestamp, nonce, rawBody);
 
-  const response = await fetch(connection.agentWebhookUrl, {
+  // Optional custom agent webhook (advanced). Otherwise use the API key with OpenAI.
+  if (connection.agentWebhookUrl) {
+    const body = {
+      protocolVersion: "1.0",
+      requestId: randomUUID(),
+      message: {
+        messageId: randomUUID(),
+        taskId,
+        contextId,
+        text: message,
+        data: null,
+        files: [],
+      },
+      principal: null,
+      requestedOutputModes: ["text/plain", "application/json"],
+    };
+    const rawBody = JSON.stringify(body);
+    const timestamp = String(Date.now());
+    const nonce = randomUUID();
+    const signature = sign(connection.agentSecret, timestamp, nonce, rawBody);
+
+    const response = await fetch(connection.agentWebhookUrl, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-agent-timestamp": timestamp,
+        "x-agent-nonce": nonce,
+        "x-agent-signature": signature,
+      },
+      body: rawBody,
+    });
+
+    const json = (await response.json().catch(() => ({}))) as {
+      message?: string;
+      kind?: string;
+      taskId?: string;
+      contextId?: string;
+    };
+
+    if (!response.ok) {
+      throw new Error(json.message || `Agent webhook HTTP ${response.status}`);
+    }
+
+    return {
+      reply: json.message || "Agent responded with no message.",
+      kind: json.kind || "completed",
+      taskId: json.taskId || taskId,
+      contextId: json.contextId || contextId,
+      backend: "webhook",
+    };
+  }
+
+  const reply = await callOpenAI(connection.agentSecret, connection.websiteDomain, message);
+  return {
+    reply,
+    kind: "completed",
+    taskId,
+    contextId,
+    backend: "openai",
+  };
+}
+
+async function callOpenAI(apiKey: string, domain: string, message: string): Promise<string> {
+  const response = await fetch("https://api.openai.com/v1/chat/completions", {
     method: "POST",
     headers: {
       "content-type": "application/json",
-      "x-agent-timestamp": timestamp,
-      "x-agent-nonce": nonce,
-      "x-agent-signature": signature,
+      authorization: `Bearer ${apiKey}`,
     },
-    body: rawBody,
+    body: JSON.stringify({
+      model: process.env.OPENAI_MODEL || "gpt-4o-mini",
+      messages: [
+        {
+          role: "system",
+          content: `You are Supi, the Airsup site agent for ${domain || "this website"}. Be concise, helpful, and clear. You represent the website owner and help visitors.`,
+        },
+        { role: "user", content: message },
+      ],
+    }),
   });
 
   const json = (await response.json().catch(() => ({}))) as {
-    message?: string;
-    kind?: string;
-    taskId?: string;
-    contextId?: string;
+    error?: { message?: string };
+    choices?: Array<{ message?: { content?: string } }>;
   };
 
   if (!response.ok) {
-    throw new Error(json.message || `Agent webhook HTTP ${response.status}`);
+    throw new Error(json.error?.message || `OpenAI HTTP ${response.status}`);
   }
 
-  return {
-    reply: json.message || "Agent responded with no message.",
-    kind: json.kind || "completed",
-    taskId: json.taskId || taskId,
-    contextId: json.contextId || contextId,
-    backend: "webhook",
-  };
+  const text = json.choices?.[0]?.message?.content?.trim();
+  if (!text) throw new Error("OpenAI returned an empty reply");
+  return text;
 }
 
 export function assertSetupPassword(headerPassword: string | null): void {

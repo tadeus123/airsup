@@ -73,7 +73,7 @@ export default function SetupPage() {
 
       {step === "secret" ? (
         <>
-          <h1>Enter your agent secret.</h1>
+          <h1>Enter your AI API key.</h1>
           <form
             className="setup-form"
             onSubmit={(e) => {
@@ -84,9 +84,9 @@ export default function SetupPage() {
             <div className="setup-row">
               <input
                 type="password"
-                name="secret"
-                autoComplete="new-password"
-                placeholder="Secret token"
+                name="apiKey"
+                autoComplete="off"
+                placeholder="sk-..."
                 value={agentSecret}
                 onChange={(e) => setAgentSecret(e.target.value)}
                 autoFocus
