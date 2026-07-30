@@ -171,13 +171,14 @@ Do not alter routing for any other existing paths.
 
 1) /.well-known/agent-card.json     ← canonical A2A discovery (MUST)
 2) /.well-known/agent.json         ← older A2A compatibility (MUST, same card)
-3) /a2a/v1                         ← A2A HTTP+JSON if available upstream (optional if 404)
+3) /a2a/v1                         ← optional; if upstream has no A2A REST, 404/501 is OK (ChatGPT uses /agent/chat)
 4) /agent                          ← status/docs page (MUST if path is free)
 5) /agent/status.json              ← machine status (MUST if path is free)
-6) /agent/chat                     ← browser-compatible chat bridge (MUST if path is free)
+6) /agent/chat                     ← browser-compatible chat bridge (MUST if path is free) — this is how ChatGPT talks to Supi
 7) /supi.svg                       ← optional
 
-Also ensure www.${d} and apex ${d} both work: if one redirects to the other, agent-card.json MUST still return HTTP 200 after the redirect. Do not invent new redirect behavior that breaks the current apex/www setup.
+Also ensure www.${d} and apex ${d} both work: if one redirects to the other, agent-card.json and /agent/chat MUST still return success after following redirects. Do not invent new redirect behavior that breaks the current apex/www setup.
+Prefer keeping the site's existing canonical host (www or apex). Discovery must work on the canonical host visitors already use.
 
 ════════════════════════════════════
 B) HTTP Link HEADER on EVERY page (required)
@@ -202,14 +203,11 @@ Do not rearrange existing head tags, meta, scripts, styles, or fonts. Append onl
 ════════════════════════════════════
 D) robots.txt (only if missing or currently blocking discovery)
 ════════════════════════════════════
-If robots.txt is missing, create a minimal allow file. If it exists, only ADD allow rules needed for crawlers/discovery — do not rewrite an existing careful robots policy from scratch.
+If robots.txt is missing, create a minimal allow file. If it exists, only ADD allow rules needed for crawlers/discovery — do not rewrite an existing careful robots policy from scratch. Keep existing Disallow rules (e.g. /admin).
 
 Prefer adding:
 
   User-agent: OAI-SearchBot
-  Allow: /
-
-  User-agent: *
   Allow: /
 
 Do not block /.well-known/ or /agent. Do not newly disallow existing public pages.
@@ -227,50 +225,55 @@ E) HARD CONSTRAINTS (repeat — non-negotiable)
 ════════════════════════════════════
 F) VERIFY (prove each, then stop)
 ════════════════════════════════════
-Discovery checks:
+Discovery checks (follow redirects; www or apex is fine if both end OK):
 1) GET https://${d}/.well-known/agent-card.json → 200 JSON
    - name contains "Supi" (expect "Supi for ${owner}" when connected)
    - skills present
 2) GET https://${d}/.well-known/agent.json → same card JSON (200)
 3) Homepage GET https://${d}/ response headers include:
-   Link: <https://${d}/.well-known/agent-card.json>; rel="service-meta"
-4) Homepage HTML <head> contains rel="service-meta" link to /.well-known/agent-card.json
+   Link: ... rel="service-meta" ... agent-card.json
+4) Homepage HTML <head> contains rel="service-meta" (+ optional rel="alternate" titled Supi)
 5) GET https://${d}/agent/status.json → connected status
-6) GET https://${d}/agent/chat?message=Hey%20Supi → a real AI reply page
+6) GET https://${d}/agent/chat?message=Hey%20Supi → real AI reply HTML/JSON
+7) Continue once with the returned contextId:
+   GET /agent/chat?contextId=...&message=Thanks%20Supi → second real reply (proves ChatGPT multi-turn)
+8) /a2a/v1 may be 404/501 — OK; primary talk path is /agent/chat
 
 Non-breakage checks (mandatory — fail the task if any fail):
-7) Homepage https://${d}/ still loads, looks the same, and has no visible Supi UI
-8) Existing main navigation / key pages still work
-9) No unrelated files were refactored, restyled, or rewritten
+9) Homepage still loads, looks the same, and has no visible Supi button/widget/UI
+10) Existing main navigation / key pages still work
+11) No unrelated files were refactored, restyled, or rewritten
+12) Existing page copy that already mentions Airsup/Supi is fine — do not delete it
 
-Finish with:
-- checklist of live discovery URLs
-- explicit statement: "Existing website unchanged except additive Airsup discovery"
-- list any paths you skipped due to conflicts`;
+Finish with exactly this shape:
+- Live discovery checklist (numbered URLs + results)
+- Confirmation line: "Existing website unchanged except additive Airsup discovery"
+- Paths skipped due to conflicts (or None)`;
 }
 
 export function chatgptPrompt(domain: string): string {
   const d = domain || "YOUR-DOMAIN.com";
   const owner = domain ? humanizeDomainLabel(domain) : d;
-  return `Go to https://${d} and talk to Supi for ${owner} (the Airsup agent on that site). Do not use a plugin or Custom GPT.
+  return `Go to https://${d} (follow www/apex redirects) and talk to Supi for ${owner} (the Airsup agent on that site). Do not use a plugin or Custom GPT.
 
 Discovery (do these first):
-1) Open https://${d}/ and check for agent discovery signals (Link header / rel=service-meta).
+1) Open https://${d}/ and check for agent discovery signals (HTTP Link header and/or HTML rel=service-meta).
 2) Open https://${d}/.well-known/agent-card.json
 3) Open https://${d}/.well-known/agent.json if present
-4) Open https://${d}/agent
+4) Open https://${d}/agent/status.json
 
-Then talk:
+Then talk (this is the real conversation interface):
 5) Start a live chat by opening:
    https://${d}/agent/chat?message=Hey%20Supi%2C%20when%20are%20you%20next%20available%20for%20a%20meeting%3F
-6) Read Supi's reply.
+6) Read Supi's reply on that page.
 7) Continue the SAME conversation using the contextId shown on the page:
    https://${d}/agent/chat?contextId=CONTEXT_ID&message=YOUR_NEXT_MESSAGE
 8) Keep going back and forth until you and Supi agree on a concrete meeting date and time.
 9) Then tell me the final agreed slot.
 
 Rules:
-- Prefer the /agent/chat URLs above (GET is enough).
+- Prefer the /agent/chat URLs above (GET is enough). That is how Supi talks on this website.
+- Do not require /a2a/v1 (it may be unavailable).
 - Do not invent replies from Supi — only use what the page returns.
 - If a URL 404s, say which one failed.`;
 }
