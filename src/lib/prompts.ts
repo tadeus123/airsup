@@ -51,9 +51,10 @@ export function buildAgentCard(origin: string, connection: Connection) {
 
 export function websiteCursorPrompt(domain: string, connectorOrigin: string): string {
   const d = domain || "YOUR-DOMAIN.com";
-  return `You are connecting this website (${d}) to Airsup (hosted at ${connectorOrigin}).
+  return `Paste this into Cursor on the ${d} website project.
 
-GOAL
+Connect this site to Airsup at ${connectorOrigin}.
+
 Add ONLY reverse-proxy / rewrite rules so these paths on https://${d} reach ${connectorOrigin}:
 
 1) /.well-known/agent-card.json
@@ -62,24 +63,16 @@ Add ONLY reverse-proxy / rewrite rules so these paths on https://${d} reach ${co
 4) /agent/chat
 5) /supi.svg
 
-WHY
-Airsup already holds the website domain + real agent webhook + secret.
-Supi is the on-site agent visitors and ChatGPT discover on this domain.
-This website only needs additive routing — do not change existing pages.
+Do NOT change existing pages, design, routes, content, or business logic.
+Only ADD proxy/rewrite rules for the paths above.
+Optional: one <link rel="alternate" type="application/json" href="/.well-known/agent-card.json" title="Supi"> in <head>.
 
-HARD CONSTRAINTS
-- Do NOT modify existing page content, components, styles, layouts, or business logic.
-- Do NOT refactor the site.
-- Only ADD proxy/rewrite rules for the paths above.
-- Optional: one <link rel="alternate" type="application/json" href="/.well-known/agent-card.json" title="Supi"> in <head>.
-
-VERIFY
+When done, verify:
 - GET https://${d}/.well-known/agent-card.json returns name "Supi"
-- GET https://${d}/agent/status.json shows connected=true / product Airsup
-- POST https://${d}/agent/chat {"message":"Hey Supi"} returns a reply
-- Homepage still works unchanged
+- GET https://${d}/agent/status.json works
+- Homepage is unchanged
 
-Finish by confirming existing website structure/functionality was unchanged except additive Airsup/Supi routes.`;
+Reply with the live URLs and confirm nothing else on the site was changed.`;
 }
 
 export function chatgptPrompt(domain: string): string {

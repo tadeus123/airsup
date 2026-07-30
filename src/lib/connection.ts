@@ -38,7 +38,7 @@ function fromEnv(): Connection | null {
     websiteDomain,
     agentWebhookUrl,
     agentSecret,
-    connected: Boolean(websiteDomain && agentWebhookUrl && agentSecret),
+    connected: Boolean(websiteDomain && agentSecret),
     updatedAt: new Date().toISOString(),
   };
 }
@@ -72,7 +72,7 @@ export async function getConnection(): Promise<{
 
 export async function saveConnection(input: {
   websiteDomain: string;
-  agentWebhookUrl: string;
+  agentWebhookUrl?: string;
   agentSecret: string;
 }): Promise<{ connection: Connection; storage: PublicConnection["storage"] }> {
   const websiteDomain = input.websiteDomain
@@ -80,17 +80,22 @@ export async function saveConnection(input: {
     .replace(/^https?:\/\//, "")
     .replace(/\/$/, "")
     .toLowerCase();
-  const agentWebhookUrl = input.agentWebhookUrl.trim();
+  const existing = await getConnection();
+  const agentWebhookUrl = (
+    input.agentWebhookUrl?.trim() ||
+    existing.connection.agentWebhookUrl ||
+    process.env.AGENT_WEBHOOK_URL ||
+    ""
+  ).trim();
   const agentSecret = input.agentSecret.trim();
   if (!websiteDomain) throw new Error("Website domain is required");
-  if (!agentWebhookUrl) throw new Error("Agent webhook URL is required");
   if (!agentSecret) throw new Error("Agent secret is required");
 
   const connection: Connection = {
     websiteDomain,
     agentWebhookUrl,
     agentSecret,
-    connected: true,
+    connected: Boolean(websiteDomain && agentSecret),
     updatedAt: new Date().toISOString(),
   };
 
@@ -100,8 +105,6 @@ export async function saveConnection(input: {
     return { connection, storage: "redis" };
   }
 
-  // Without Redis, connection is accepted for this response / docs,
-  // but durable online storage needs env vars or Upstash.
   return { connection, storage: "none" };
 }
 

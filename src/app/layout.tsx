@@ -1,16 +1,22 @@
 import type { Metadata } from "next";
+import { Outfit } from "next/font/google";
 import "./globals.css";
 
+const outfit = Outfit({
+  subsets: ["latin"],
+  weight: ["400", "700"],
+});
+
 export const metadata: Metadata = {
-  title: "Airsup — activate Supi on your website",
-  description: "Connect your website domain to your real agent. Supi is the Airsup site agent.",
+  title: "Airsup",
+  description: "Set up Supi on your website",
   icons: { icon: "/supi.svg" },
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en">
-      <body>{children}</body>
+      <body className={outfit.className}>{children}</body>
     </html>
   );
 }
