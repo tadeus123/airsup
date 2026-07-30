@@ -103,7 +103,10 @@ export default function SetupPage() {
       {step === "done" ? (
         <>
           <h1>Paste this into Cursor.</h1>
-          <p className="setup-sub">One prompt. Open your website project, paste, run.</p>
+          <p className="setup-sub">
+            One prompt for your website project. It must not break or change anything already on the
+            site — only additive invisible discovery.
+          </p>
           <textarea className="setup-prompt" readOnly value={prompt} />
           <button type="button" className="setup-copy" onClick={() => void copyPrompt()}>
             {copied ? "Copied" : "Copy prompt"}

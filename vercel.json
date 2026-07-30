@@ -1,8 +1,20 @@
 {
   "rewrites": [
     { "source": "/.well-known/agent-card.json", "destination": "/api/agent-card" },
+    { "source": "/.well-known/agent.json", "destination": "/api/agent-card" },
     { "source": "/agent/status.json", "destination": "/api/status" },
     { "source": "/agent/chat", "destination": "/api/chat" },
     { "source": "/setup", "destination": "/" }
+  ],
+  "headers": [
+    {
+      "source": "/(.*)",
+      "headers": [
+        {
+          "key": "Link",
+          "value": "</.well-known/agent-card.json>; rel=\"service-meta\"; type=\"application/json\""
+        }
+      ]
+    }
   ]
 }

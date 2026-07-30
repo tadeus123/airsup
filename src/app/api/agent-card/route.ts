@@ -11,6 +11,7 @@ export async function GET(request: Request) {
     headers: {
       "Cache-Control": "public, max-age=60",
       "Access-Control-Allow-Origin": "*",
+      Link: `<${origin}/.well-known/agent-card.json>; rel="service-meta"; type="application/json"`,
     },
   });
 }
