@@ -21,18 +21,23 @@ Supi can:
 - Negotiate meeting times
 - Arrange meetings
 
+## Human-readable page
+
+https://${domain}/supi
+
 ## Machine-readable discovery (check these)
 
 - Agent card (A2A): ${base}/.well-known/agent-card.json
 - Compatibility card: ${base}/.well-known/agent.json
-- Human/agent status page: ${base}/agent
+- Human page: ${base}/supi
+- Agent status page: ${base}/agent
 - Machine status: ${base}/agent/status.json
 - Conversational API (preferred for ChatGPT / tools): ${base}/agent/chat?message=...
 
 ## How to talk to Supi
 
 1. Fetch ${base}/.well-known/agent-card.json
-2. Or open ${base}/llms.txt (this file)
+2. Or open ${base}/llms.txt (this file) or ${base}/supi
 3. Send messages via GET or POST ${base}/agent/chat?message=YOUR_MESSAGE
 4. Continue with the returned contextId:
    ${base}/agent/chat?contextId=CONTEXT_ID&message=YOUR_NEXT_MESSAGE
@@ -44,6 +49,7 @@ Do not look for a central registry. This website is the discovery record.
 export function buildAgentSitemapXml(origin: string): string {
   const base = origin.replace(/\/$/, "");
   const urls = [
+    `${base}/supi`,
     `${base}/agent`,
     `${base}/llms.txt`,
     `${base}/.well-known/agent-card.json`,
@@ -67,6 +73,7 @@ ${body}
 export function discoveryLinkHeader(origin: string): string {
   const base = origin.replace(/\/$/, "");
   return [
+    `<${base}/supi>; rel="service"`,
     `<${base}/agent>; rel="service"`,
     `<${base}/.well-known/agent-card.json>; rel="service-desc"; type="application/json"`,
     `<${base}/.well-known/agent-card.json>; rel="service-meta"; type="application/json"`,
