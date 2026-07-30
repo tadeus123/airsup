@@ -1,34 +1,32 @@
 # Airsup
 
-Online setup for **Airsup** — connect your website domain + agent secret so **Supi** (the on-site agent) is discoverable by ChatGPT.
+Online setup for **Airsup** — domain + OpenAI API key → Cursor prompt → Supi on your site.
 
 - **Airsup** = the product / connector
-- **Supi** = the agent you put on your website (the face icon)
+- **Supi** = the on-site agent
 
-## Deploy on Vercel
+## How storage works
 
-1. Import **https://github.com/tadeus123/airsup** into a new Vercel project
-2. Deploy
-3. Open your Vercel URL
-4. Enter website domain + webhook + secret → **Connect Supi**
-5. Copy the Website Cursor prompt into Cursor on your site
-6. Copy the ChatGPT prompt into ChatGPT
+Your domain + API key are saved in a dedicated **Supabase** project named `airsup` (not your other apps).
 
-### Env vars (optional but recommended)
+Required Vercel env vars:
 
 ```bash
-WEBSITE_DOMAIN=tademehl.com
-AGENT_WEBHOOK_URL=https://your-agent.example.com/hooks/a2a
-AGENT_SECRET=your-long-secret
-SETUP_PASSWORD=optional-password
+SUPABASE_URL=https://fbxrcnxgslihxzoxlwtg.supabase.co
+SUPABASE_ANON_KEY=your-anon-key
+AIRSUP_DB_TOKEN=your-db-token
 ```
 
-Add free Upstash Redis for instant Connect saves without redeploy.
+## Deploy
+
+1. Import https://github.com/tadeus123/airsup into Vercel
+2. Add the three env vars above → Redeploy
+3. Open the site → domain → API key → copy Cursor prompt onto your website project
 
 ## Public paths
 
 - `/.well-known/agent-card.json` (name: **Supi**)
-- `/agent` (Supi page)
+- `/agent`
 - `/agent/status.json`
 - `/agent/chat`
 - `/supi.svg`
@@ -37,5 +35,6 @@ Add free Upstash Redis for instant Connect saves without redeploy.
 
 ```bash
 npm install
+cp .env.example .env.local   # fill values
 npm run dev
 ```

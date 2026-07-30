@@ -14,7 +14,7 @@ export type PublicConnection = {
   agentSecretSet: boolean;
   connected: boolean;
   updatedAt: string;
-  storage: "redis" | "env" | "none";
+  storage: "supabase" | "redis" | "env" | "none";
 };
 
 const empty = (): Connection => ({
@@ -47,6 +47,59 @@ function fromEnv(): Connection | null {
   };
 }
 
+function supabaseConfig() {
+  const url = (process.env.SUPABASE_URL ?? "").replace(/\/$/, "");
+  const anonKey = process.env.SUPABASE_ANON_KEY ?? "";
+  const token = process.env.AIRSUP_DB_TOKEN ?? "";
+  if (!url || !anonKey || !token) return null;
+  return { url, anonKey, token };
+}
+
+async function supabaseRpc<T>(
+  fn: string,
+  body: Record<string, unknown>
+): Promise<T | null> {
+  const cfg = supabaseConfig();
+  if (!cfg) return null;
+  const response = await fetch(`${cfg.url}/rest/v1/rpc/${fn}`, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      apikey: cfg.anonKey,
+      authorization: `Bearer ${cfg.anonKey}`,
+    },
+    body: JSON.stringify(body),
+  });
+  if (response.status === 204) return null;
+  const json = await response.json().catch(() => null);
+  if (!response.ok) {
+    const message =
+      (json && typeof json === "object" && "message" in json && String((json as { message: string }).message)) ||
+      `Supabase RPC ${fn} failed (${response.status})`;
+    throw new Error(message);
+  }
+  return json as T;
+}
+
+type StoredRow = {
+  websiteDomain?: string;
+  agentWebhookUrl?: string;
+  agentSecret?: string;
+  connected?: boolean;
+  updatedAt?: string;
+};
+
+function fromStored(row: StoredRow | null | undefined): Connection | null {
+  if (!row) return null;
+  return {
+    websiteDomain: row.websiteDomain ?? "",
+    agentWebhookUrl: row.agentWebhookUrl ?? "",
+    agentSecret: row.agentSecret ?? "",
+    connected: Boolean(row.connected),
+    updatedAt: row.updatedAt ?? new Date().toISOString(),
+  };
+}
+
 async function redis() {
   const url = process.env.UPSTASH_REDIS_REST_URL;
   const token = process.env.UPSTASH_REDIS_REST_TOKEN;
@@ -59,6 +112,14 @@ export async function getConnection(): Promise<{
   connection: Connection;
   storage: PublicConnection["storage"];
 }> {
+  if (supabaseConfig()) {
+    const row = await supabaseRpc<StoredRow | null>("airsup_get_connection", {
+      p_token: supabaseConfig()!.token,
+    });
+    const parsed = fromStored(row);
+    if (parsed) return { connection: parsed, storage: "supabase" };
+  }
+
   const client = await redis();
   if (client) {
     const stored = await client.get<Connection>("airsup:connection");
@@ -69,6 +130,7 @@ export async function getConnection(): Promise<{
       };
     }
   }
+
   const env = fromEnv();
   if (env) return { connection: env, storage: "env" };
   return { connection: empty(), storage: "none" };
@@ -103,6 +165,19 @@ export async function saveConnection(input: {
     updatedAt: new Date().toISOString(),
   };
 
+  if (supabaseConfig()) {
+    const row = await supabaseRpc<StoredRow>("airsup_save_connection", {
+      p_token: supabaseConfig()!.token,
+      p_website_domain: connection.websiteDomain,
+      p_agent_webhook_url: connection.agentWebhookUrl,
+      p_agent_secret: connection.agentSecret,
+    });
+    return {
+      connection: fromStored(row) ?? connection,
+      storage: "supabase",
+    };
+  }
+
   const client = await redis();
   if (client) {
     await client.set("airsup:connection", connection);
@@ -110,7 +185,7 @@ export async function saveConnection(input: {
   }
 
   throw new Error(
-    "Cannot save your API key yet. Add free Upstash Redis in the Vercel project (Integrations → Upstash), redeploy, then run setup again."
+    "Cannot save your API key yet. Add SUPABASE_URL, SUPABASE_ANON_KEY, and AIRSUP_DB_TOKEN to Vercel, then redeploy."
   );
 }
 
@@ -155,7 +230,6 @@ export async function callRealAgent(
   const taskId = ids.taskId || randomUUID();
   const contextId = ids.contextId || randomUUID();
 
-  // Optional custom agent webhook (advanced). Otherwise use the API key with OpenAI.
   if (connection.agentWebhookUrl) {
     const body = {
       protocolVersion: "1.0",
