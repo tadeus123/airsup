@@ -376,3 +376,95 @@ export function assertSetupPassword(headerPassword: string | null): void {
     throw new Error("Unauthorized");
   }
 }
+
+export function assertAdminPassword(headerPassword: string | null): void {
+  const expected =
+    process.env.ADMIN_PASSWORD ||
+    process.env.SETUP_PASSWORD ||
+    process.env.AIRSUP_DB_TOKEN;
+  if (!expected) {
+    throw new Error("Set ADMIN_PASSWORD (or SETUP_PASSWORD / AIRSUP_DB_TOKEN) to use /admin");
+  }
+  const a = Buffer.from(headerPassword ?? "");
+  const b = Buffer.from(expected);
+  if (a.length !== b.length || !timingSafeEqual(a, b)) {
+    throw new Error("Unauthorized");
+  }
+}
+
+export type AdminMessage = {
+  contextId: string;
+  role: string;
+  content: string;
+  createdAt: string;
+};
+
+export type AdminConversation = {
+  contextId: string;
+  websiteDomain: string;
+  messageCount: number;
+  turns: number;
+  isRealConversation: boolean;
+  firstAt: string;
+  lastAt: string;
+  messages: AdminMessage[];
+};
+
+export async function listAdminConversations(): Promise<{
+  websiteDomain: string;
+  connected: boolean;
+  storage: PublicConnection["storage"];
+  conversations: AdminConversation[];
+}> {
+  const { connection, storage } = await getConnection();
+  const cfg = supabaseConfig();
+  if (!cfg) {
+    return {
+      websiteDomain: connection.websiteDomain,
+      connected: connection.connected,
+      storage,
+      conversations: [],
+    };
+  }
+
+  const rows =
+    (await supabaseRpc<AdminMessage[]>("airsup_list_recent_messages", {
+      p_token: cfg.token,
+      p_limit: 400,
+    })) || [];
+
+  const byContext = new Map<string, AdminMessage[]>();
+  for (const row of rows) {
+    const list = byContext.get(row.contextId) || [];
+    list.push(row);
+    byContext.set(row.contextId, list);
+  }
+
+  const conversations: AdminConversation[] = [...byContext.entries()]
+    .map(([contextId, messages]) => {
+      const sorted = [...messages].sort(
+        (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
+      );
+      const userCount = sorted.filter((m) => m.role === "user").length;
+      const assistantCount = sorted.filter((m) => m.role === "assistant").length;
+      const turns = Math.min(userCount, assistantCount);
+      return {
+        contextId,
+        websiteDomain: connection.websiteDomain || "(unknown site)",
+        messageCount: sorted.length,
+        turns,
+        isRealConversation: turns >= 2,
+        firstAt: sorted[0]?.createdAt || "",
+        lastAt: sorted[sorted.length - 1]?.createdAt || "",
+        messages: sorted,
+      };
+    })
+    .sort((a, b) => new Date(b.lastAt).getTime() - new Date(a.lastAt).getTime());
+
+  return {
+    websiteDomain: connection.websiteDomain,
+    connected: connection.connected,
+    storage,
+    conversations,
+  };
+}
