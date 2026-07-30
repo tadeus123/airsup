@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { SupiIcon } from "@/components/SupiIcon";
 
 type ConnectionResponse = {
   websiteDomain: string;
@@ -85,6 +86,7 @@ const styles: Record<string, React.CSSProperties> = {
     font: "inherit",
     background: "#fff",
   },
+  header: { display: "flex", gap: "0.9rem", alignItems: "center", marginBottom: "0.75rem" },
 };
 
 export default function SetupPage() {
@@ -93,7 +95,7 @@ export default function SetupPage() {
   const [agentSecret, setAgentSecret] = useState("");
   const [setupPassword, setSetupPassword] = useState("");
   const [data, setData] = useState<ConnectionResponse | null>(null);
-  const [chatMessage, setChatMessage] = useState("What are you doing right now?");
+  const [chatMessage, setChatMessage] = useState("Hey Supi, what are you doing right now?");
   const [chatOut, setChatOut] = useState("No message yet.");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -166,12 +168,18 @@ export default function SetupPage() {
 
   return (
     <main style={styles.main}>
-      <h1 style={{ margin: "0 0 0.4rem", fontSize: "clamp(2rem, 5vw, 2.8rem)" }}>
-        AirCart Connect
-      </h1>
+      <div style={styles.header}>
+        <SupiIcon size={52} />
+        <div>
+          <h1 style={{ margin: 0, fontSize: "clamp(2rem, 5vw, 2.8rem)" }}>Airsup</h1>
+          <p style={{ margin: "0.2rem 0 0", color: "var(--muted)" }}>
+            Activate <strong>Supi</strong> on your website
+          </p>
+        </div>
+      </div>
       <p style={styles.lead}>
-        Enter your website domain and agent secret. This connects your real agent so ChatGPT can
-        find it on your website.
+        Enter your website domain and agent secret. Airsup connects your real agent; Supi is the
+        on-site agent ChatGPT finds there.
       </p>
 
       <div style={styles.badge}>
@@ -184,16 +192,14 @@ export default function SetupPage() {
             display: "inline-block",
           }}
         />
-        {connected
-          ? `Connected to ${data?.websiteDomain}`
-          : "Not connected yet"}
+        {connected ? `Supi connected on ${data?.websiteDomain}` : "Supi not connected yet"}
         {data?.storage ? ` · storage: ${data.storage}` : ""}
       </div>
       {error ? <p style={{ color: "var(--bad)" }}>{error}</p> : null}
       {data?.tip ? <p style={styles.hint}>{data.tip}</p> : null}
 
       <section style={styles.panel}>
-        <h2 style={{ margin: 0, fontSize: "1.2rem" }}>1. Connect agent to website</h2>
+        <h2 style={{ margin: 0, fontSize: "1.2rem" }}>1. Connect Supi to your website</h2>
 
         <label style={styles.label} htmlFor="domain">
           Website domain
@@ -243,7 +249,7 @@ export default function SetupPage() {
 
         <div style={styles.row}>
           <button style={styles.button} disabled={busy} onClick={connect} type="button">
-            Connect
+            Connect Supi
           </button>
           <button style={styles.secondary} disabled={busy} onClick={() => refresh()} type="button">
             Refresh
@@ -252,7 +258,7 @@ export default function SetupPage() {
       </section>
 
       <section style={styles.panel}>
-        <h2 style={{ margin: 0, fontSize: "1.2rem" }}>2. Test chat</h2>
+        <h2 style={{ margin: 0, fontSize: "1.2rem" }}>2. Test chat with Supi</h2>
         <textarea
           style={styles.textarea}
           value={chatMessage}
@@ -269,8 +275,8 @@ export default function SetupPage() {
       <section style={styles.panel}>
         <h2 style={{ margin: 0, fontSize: "1.2rem" }}>3. Website Cursor prompt</h2>
         <p style={styles.hint}>
-          Paste this into Cursor on your website project. It only adds proxy routes to this AirCart
-          Connect deployment.
+          Paste this into Cursor on your website project. It only adds proxy routes so Supi is
+          reachable on your domain.
         </p>
         <textarea style={styles.textarea} readOnly value={data?.websiteCursorPrompt || ""} />
         <div style={styles.row}>
@@ -314,7 +320,7 @@ export default function SetupPage() {
             Copy env
           </button>
           <a href="/agent" style={{ alignSelf: "center" }}>
-            Open public /agent page
+            Open Supi /agent page
           </a>
         </div>
       </section>

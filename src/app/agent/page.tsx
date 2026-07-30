@@ -1,14 +1,14 @@
+import { SupiIcon } from "@/components/SupiIcon";
 import { getConnection, publicOrigin } from "@/lib/connection";
 
 export const dynamic = "force-dynamic";
 
 export default async function AgentPage() {
   const { connection, storage } = await getConnection();
-  // On the server during SSR, request origin may be local; prefer configured domain.
-  const origin = publicOrigin(connection, "https://aircart-connect.vercel.app");
+  const origin = publicOrigin(connection, "https://airsup.vercel.app");
   const nowDoing = connection.connected
-    ? `Connected real agent for ${connection.websiteDomain} and ready for conversations.`
-    : "Waiting for setup on the home page.";
+    ? `Supi is connected for ${connection.websiteDomain} and ready for conversations.`
+    : "Waiting for setup on the home page to activate Supi.";
 
   return (
     <main
@@ -19,12 +19,13 @@ export default async function AgentPage() {
         fontFamily: '"Iowan Old Style", "Palatino Linotype", Palatino, Georgia, serif',
       }}
     >
-      <h1 style={{ fontSize: "clamp(2rem, 5vw, 3rem)", marginBottom: "0.75rem" }}>
-        AirCart Agent
-      </h1>
-      <p style={{ color: "#52606d", lineHeight: 1.55 }}>
-        AirCart Connect hosts your website agent setup and forwards chat to your real agent
-        webhook.
+      <div style={{ display: "flex", gap: "0.9rem", alignItems: "center" }}>
+        <SupiIcon size={56} />
+        <h1 style={{ fontSize: "clamp(2rem, 5vw, 3rem)", margin: 0 }}>Supi</h1>
+      </div>
+      <p style={{ color: "#52606d", lineHeight: 1.55, marginTop: "1rem" }}>
+        Supi is the <strong>Airsup</strong> agent for this website. Airsup connects your domain to
+        your real agent backend.
       </p>
       <div
         style={{

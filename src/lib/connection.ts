@@ -57,7 +57,7 @@ export async function getConnection(): Promise<{
 }> {
   const client = await redis();
   if (client) {
-    const stored = await client.get<Connection>("aircart:connection");
+    const stored = await client.get<Connection>("airsup:connection");
     if (stored) {
       return {
         connection: { ...empty(), ...stored },
@@ -96,7 +96,7 @@ export async function saveConnection(input: {
 
   const client = await redis();
   if (client) {
-    await client.set("aircart:connection", connection);
+    await client.set("airsup:connection", connection);
     return { connection, storage: "redis" };
   }
 
@@ -137,7 +137,7 @@ export async function callRealAgent(
 ): Promise<{ reply: string; kind: string; taskId?: string; contextId?: string; backend: string }> {
   if (!connection.connected || !connection.agentWebhookUrl || !connection.agentSecret) {
     return {
-      reply: `AirCart is online, but no real agent is connected yet for ${connection.websiteDomain || "your website"}. Open the setup page, enter your website domain, webhook URL, and agent secret, then Connect.`,
+      reply: `Supi (Airsup) is online, but no real agent is connected yet for ${connection.websiteDomain || "your website"}. Open the setup page, enter your website domain, webhook URL, and agent secret, then Connect.`,
       kind: "completed",
       backend: "builtin",
     };
