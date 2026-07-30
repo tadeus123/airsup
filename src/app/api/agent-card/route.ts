@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { getConnection, publicOrigin } from "@/lib/connection";
 import { customerSiteUrl, shouldHideSupiOnSetupHost } from "@/lib/host";
+import { discoveryLinkHeader } from "@/lib/discovery-docs";
 import { buildAgentCard } from "@/lib/prompts";
 
 export const runtime = "nodejs";
@@ -32,7 +33,7 @@ export async function GET(request: Request) {
     headers: {
       "Cache-Control": "public, max-age=60",
       "Access-Control-Allow-Origin": "*",
-      Link: `<${origin}/.well-known/agent-card.json>; rel="service-meta"; type="application/json"`,
+      Link: discoveryLinkHeader(origin),
     },
   });
 }

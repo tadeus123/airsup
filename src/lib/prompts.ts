@@ -132,7 +132,7 @@ The existing website is sacred. Visitors must experience the site exactly as it 
 YOU MUST:
 - Treat this as a surgical, additive install only.
 - Touch the smallest possible surface area.
-- Prefer config-only changes (rewrites, headers, robots) over editing app/page code.
+- Prefer config-only changes (rewrites, headers, robots, sitemap, llms.txt) over editing app/page code.
 - If a change could affect design, layout, content, SEO visible text, routing of existing pages, analytics, forms, CMS, auth, or performance — DO NOT do it.
 - If unsure whether something is safe, STOP and leave it unchanged. Ask rather than guess.
 - If any existing path already exists and conflicts (e.g. an existing /agent page), DO NOT overwrite it — report the conflict and stop for that path.
@@ -149,19 +149,21 @@ YOU MUST NOT:
 
 SUCCESS LOOKS LIKE:
 - Homepage and all existing pages look identical before vs after.
-- Existing functionality still works (navigation, forms, links, assets).
-- Only new additive machine endpoints / headers / head links / optional robots allow rules were added.
+- Existing functionality still works.
+- Only additive machine discovery was added: proxies, headers, head links, robots, sitemap entries, llms.txt.
 
 If you cannot install discovery without risking breakage, do nothing destructive and report what blocked you.
 
 CONTEXT
 - Supi is already connected in Airsup setup for this domain.
 - The Agent Card identity is "Supi for ${owner}" and is served by Airsup at ${connectorOrigin}.
-- This website must SCREAM to machines that an agent lives here — invisibly.
-- ChatGPT does not auto-scan every domain yet; when it opens this site or knows the domain, these signals must make discovery trivial.
+- Goal: make AI crawlers and tool-using assistants FIND Supi from the website itself.
+- Stack to install (all of them):
+  robots.txt → sitemap.xml → llms.txt → /.well-known/agent-card.json → /agent → /agent/chat
+- ChatGPT does not auto-scan every domain for agent cards yet. More machine routes = higher chance of discovery.
 
 GOAL
-Make https://${d} expose machine-only discovery + proxy Airsup at ${connectorOrigin}, without changing anything visitors already see or use.
+Make https://${d} expose maximum machine-only discovery + proxy Airsup at ${connectorOrigin}, without changing anything visitors already see or use.
 
 ════════════════════════════════════
 A) REVERSE-PROXY / REWRITE (required)
@@ -170,110 +172,147 @@ ADD proxy/rewrite rules only for these paths on https://${d} → ${connectorOrig
 Do not alter routing for any other existing paths.
 
 1) /.well-known/agent-card.json     ← canonical A2A discovery (MUST)
-2) /.well-known/agent.json         ← older A2A compatibility (MUST, same card)
-3) /a2a/v1                         ← optional; if upstream has no A2A REST, 404/501 is OK (ChatGPT uses /agent/chat)
-4) /agent                          ← status/docs page (MUST if path is free)
-5) /agent/status.json              ← machine status (MUST if path is free)
-6) /agent/chat                     ← browser-compatible chat bridge (MUST if path is free) — this is how ChatGPT talks to Supi
-7) /supi.svg                       ← optional
+2) /.well-known/agent.json         ← older A2A compatibility (MUST)
+3) /llms.txt                       ← AI site brief (MUST) — proxy to connector
+4) /agent-sitemap.xml              ← discovery URL list (MUST) — proxy to connector
+5) /a2a/v1                         ← optional; 404/501 OK (ChatGPT uses /agent/chat)
+6) /agent                          ← agent status page for crawlers (MUST if path free)
+7) /agent/status.json              ← machine status (MUST if path free)
+8) /agent/chat                     ← conversational API (MUST) — how ChatGPT talks to Supi
+9) /supi.svg                       ← optional
 
-Also ensure www.${d} and apex ${d} both work: if one redirects to the other, agent-card.json and /agent/chat MUST still return success after following redirects. Do not invent new redirect behavior that breaks the current apex/www setup.
-Prefer keeping the site's existing canonical host (www or apex). Discovery must work on the canonical host visitors already use.
+Also ensure www.${d} and apex ${d} both work after redirects.
+Prefer keeping the site's existing canonical host.
 
 ════════════════════════════════════
-B) HTTP Link HEADER on EVERY page (required)
+B) HTTP Link HEADERS on EVERY page (required)
 ════════════════════════════════════
-On ALL HTML responses for this site (homepage, every page), ADD this header only:
+On ALL HTML responses (homepage + every page), ADD these Link values (comma-separated or multiple Link headers). Do not remove unrelated existing headers.
 
-  Link: <https://${d}/.well-known/agent-card.json>; rel="service-meta"; type="application/json"
+  Link: </agent>; rel="service"
+  Link: </.well-known/agent-card.json>; rel="service-desc"; type="application/json"
+  Link: </.well-known/agent-card.json>; rel="service-meta"; type="application/json"
+  Link: </llms.txt>; rel="alternate"; type="text/plain"
 
 Implement via nginx/Caddy/Vercel headers/platform config — not by rewriting page bodies.
-This is invisible to humans. Use exactly rel="service-meta". Do not remove or replace unrelated existing headers.
+Invisible to humans.
 
 ════════════════════════════════════
-C) HTML <head> link on EVERY page (required)
+C) HTML <head> links on EVERY page (required)
 ════════════════════════════════════
-In the shared site layout <head> (root layout / template that wraps every page), ADD these two tags and nothing else in that layout for this task:
+In the shared site layout <head>, APPEND only:
 
   <link rel="service-meta" type="application/json" href="/.well-known/agent-card.json" />
   <link rel="alternate" type="application/json" href="/.well-known/agent-card.json" title="Supi for ${owner}" />
+  <link rel="alternate" type="text/plain" href="/llms.txt" title="llms.txt" />
+  <link rel="service" href="/agent" title="Supi for ${owner}" />
 
-Do not rearrange existing head tags, meta, scripts, styles, or fonts. Append only.
+Do not rearrange existing head tags. Append only. No visible UI.
 
 ════════════════════════════════════
-D) robots.txt (only if missing or currently blocking discovery)
+D) robots.txt (required additive update)
 ════════════════════════════════════
-If robots.txt is missing, create a minimal allow file. If it exists, only ADD allow rules needed for crawlers/discovery — do not rewrite an existing careful robots policy from scratch. Keep existing Disallow rules (e.g. /admin).
-
-Prefer adding:
+If robots.txt is missing, create it. If it exists, ADD these rules without deleting existing Disallow rules (e.g. keep /admin):
 
   User-agent: OAI-SearchBot
   Allow: /
 
-Do not block /.well-known/ or /agent. Do not newly disallow existing public pages.
+  User-agent: ChatGPT-User
+  Allow: /
+
+  User-agent: GPTBot
+  Allow: /
+
+  User-agent: *
+  Allow: /
+
+  Sitemap: https://${d}/sitemap.xml
+
+Do not block /.well-known/, /agent, /llms.txt, or /agent-sitemap.xml.
 
 ════════════════════════════════════
-E) HARD CONSTRAINTS (repeat — non-negotiable)
+E) sitemap.xml (required additive update)
+════════════════════════════════════
+If sitemap.xml exists, ADD these <url><loc> entries (do not remove existing URLs).
+If missing, create a minimal sitemap that at least includes them:
+
+  https://${d}/agent
+  https://${d}/llms.txt
+  https://${d}/.well-known/agent-card.json
+  https://${d}/.well-known/agent.json
+  https://${d}/agent-sitemap.xml
+
+Optional: also add a second Sitemap line in robots.txt for https://${d}/agent-sitemap.xml
+
+════════════════════════════════════
+F) llms.txt (required)
+════════════════════════════════════
+Must be live at https://${d}/llms.txt (via proxy to Airsup is preferred).
+It must clearly name Supi for ${owner}, list capabilities, and include absolute URLs to:
+- /.well-known/agent-card.json
+- /agent
+- /agent/chat
+
+If proxying /llms.txt to Airsup, do not invent a second conflicting file.
+
+════════════════════════════════════
+G) HARD CONSTRAINTS (non-negotiable)
 ════════════════════════════════════
 1. DO NOT BREAK THE EXISTING WEBSITE. This outranks every discovery goal.
-2. Additive only: proxies, one Link header, two head <link>s, careful robots allow — nothing else.
-3. No visible Supi UI. No design changes. No content changes. No refactors.
-4. No hidden human SEO text.
-5. Prefer nginx/Caddy/Next rewrites/platform headers over editing page components.
-6. If anything conflicts with an existing route or file, stop on that item and report it.
+2. Additive only. No visible Supi UI. No design/content refactors.
+3. No hidden human SEO text / cloaking.
+4. Prefer rewrites + headers + robots/sitemap/llms over editing page components.
+5. On conflicts, stop that item and report it.
 
 ════════════════════════════════════
-F) VERIFY (prove each, then stop)
+H) VERIFY (prove each, then stop)
 ════════════════════════════════════
-Discovery checks (follow redirects; www or apex is fine if both end OK):
-1) GET https://${d}/.well-known/agent-card.json → 200 JSON
-   - name contains "Supi" (expect "Supi for ${owner}" when connected)
-   - skills present
-2) GET https://${d}/.well-known/agent.json → same card JSON (200)
-3) Homepage GET https://${d}/ response headers include:
-   Link: ... rel="service-meta" ... agent-card.json
-4) Homepage HTML <head> contains rel="service-meta" (+ optional rel="alternate" titled Supi)
-5) GET https://${d}/agent/status.json → connected status
-6) GET https://${d}/agent/chat?message=Hey%20Supi → real AI reply HTML/JSON
-7) Continue once with the returned contextId:
-   GET /agent/chat?contextId=...&message=Thanks%20Supi → second real reply (proves ChatGPT multi-turn)
-8) /a2a/v1 may be 404/501 — OK; primary talk path is /agent/chat
+Follow redirects (www/apex OK):
+1) GET /.well-known/agent-card.json → 200; name contains Supi; skills present
+2) GET /.well-known/agent.json → same card
+3) GET /llms.txt → 200 text; mentions Supi and agent-card + /agent/chat
+4) GET /agent-sitemap.xml → 200 XML; lists agent + llms.txt + agent-card
+5) Homepage Link headers include rel=service, service-desc or service-meta, and llms.txt alternate
+6) Homepage <head> includes service-meta + llms.txt alternate
+7) robots.txt allows OAI-SearchBot / ChatGPT-User and references Sitemap
+8) sitemap.xml includes /agent, /llms.txt, agent-card
+9) GET /agent/status.json → connected
+10) GET /agent/chat?message=Hey%20Supi → real AI reply
+11) Continue once with contextId → second real reply
+12) /a2a/v1 may be 404/501 — OK
 
-Non-breakage checks (mandatory — fail the task if any fail):
-9) Homepage still loads, looks the same, and has no visible Supi button/widget/UI
-10) Existing main navigation / key pages still work
-11) No unrelated files were refactored, restyled, or rewritten
-12) Existing page copy that already mentions Airsup/Supi is fine — do not delete it
+Non-breakage:
+13) Homepage looks unchanged; no Supi widget/button
+14) Nav/key pages still work
+15) No unrelated refactors
 
-Finish with exactly this shape:
-- Live discovery checklist (numbered URLs + results)
-- Confirmation line: "Existing website unchanged except additive Airsup discovery"
+Finish with:
+- Live discovery checklist (numbered)
+- "Existing website unchanged except additive Airsup discovery"
 - Paths skipped due to conflicts (or None)`;
 }
 
 export function chatgptPrompt(domain: string): string {
   const d = domain || "YOUR-DOMAIN.com";
   const owner = domain ? humanizeDomainLabel(domain) : d;
-  return `Go to https://${d} (follow www/apex redirects) and talk to Supi for ${owner} (the Airsup agent on that site). Do not use a plugin or Custom GPT.
+  return `Go to https://${d} (follow www/apex redirects) and talk to Supi for ${owner}. Do not use a plugin or Custom GPT.
 
-Discovery (do these first):
-1) Open https://${d}/ and check for agent discovery signals (HTTP Link header and/or HTML rel=service-meta).
-2) Open https://${d}/.well-known/agent-card.json
-3) Open https://${d}/.well-known/agent.json if present
-4) Open https://${d}/agent/status.json
+Discovery (do these in order — use browsing or HTTP fetch tools):
+1) Open https://${d}/robots.txt — confirm crawlers are allowed and note Sitemap.
+2) Open the Sitemap URL from robots.txt (usually https://${d}/sitemap.xml) and look for /agent, /llms.txt, and agent-card.
+3) Open https://${d}/llms.txt — read who Supi is and the listed agent URLs.
+4) Open https://${d}/.well-known/agent-card.json
+5) Open https://${d}/agent and https://${d}/agent/status.json
 
-Then talk (this is the real conversation interface):
-5) Start a live chat by opening:
-   https://${d}/agent/chat?message=Hey%20Supi%2C%20when%20are%20you%20next%20available%20for%20a%20meeting%3F
-6) Read Supi's reply on that page.
-7) Continue the SAME conversation using the contextId shown on the page:
-   https://${d}/agent/chat?contextId=CONTEXT_ID&message=YOUR_NEXT_MESSAGE
-8) Keep going back and forth until you and Supi agree on a concrete meeting date and time.
-9) Then tell me the final agreed slot.
+Then talk (public HTTP API on the website):
+6) GET https://${d}/agent/chat?message=Hey%20Supi%2C%20when%20are%20you%20next%20available%20for%20a%20meeting%3F
+7) Read the reply (HTML page or JSON with reply + contextId + continueUrl).
+8) Continue with the same contextId until a concrete meeting time is agreed.
+9) Tell me the final agreed slot.
 
 Rules:
-- Prefer the /agent/chat URLs above (GET is enough). That is how Supi talks on this website.
-- Do not require /a2a/v1 (it may be unavailable).
-- Do not invent replies from Supi — only use what the page returns.
+- Prefer /agent/chat (GET is enough). That is how Supi talks on this website.
+- Do not require /a2a/v1.
+- Do not invent replies — only use what the endpoint returns.
 - If a URL 404s, say which one failed.`;
 }

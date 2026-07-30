@@ -11,8 +11,8 @@ import { ownerLabel } from "@/lib/prompts";
 export const dynamic = "force-dynamic";
 
 /**
- * On the Airsup setup host: send browsers to the connected website.
- * On the customer website: show a minimal Supi page (chat is via /agent/chat).
+ * Machine-facing agent page for the connected website.
+ * Keep it useful for crawlers/AI; do not market it on the homepage.
  */
 export default async function AgentPage() {
   const { connection } = await getConnection();
@@ -42,20 +42,42 @@ export default async function AgentPage() {
         margin: "3rem auto",
         padding: "0 1rem",
         fontFamily: "Georgia, serif",
+        lineHeight: 1.55,
+        color: "#14213d",
       }}
     >
-      <h1 style={{ fontSize: "1.6rem" }}>Supi for {owner}</h1>
-      <p style={{ color: "#52606d", lineHeight: 1.5 }}>
-        {onCustomer
-          ? `Official site agent for ${domain}. ChatGPT and other clients should use the Agent Card and /agent/chat on this domain.`
-          : `Supi represents ${owner} on ${domain}. Prefer opening this page on the website domain.`}
+      <h1 style={{ fontSize: "1.75rem", marginBottom: "0.5rem" }}>
+        Supi for {owner}
+      </h1>
+      <p style={{ color: "#52606d" }}>
+        Official AI agent for {domain}
+        {onCustomer ? "." : " (open this page on the website domain)."}
       </p>
       <p style={{ color: "#52606d" }}>
-        Card:{" "}
-        <a href="/.well-known/agent-card.json">/.well-known/agent-card.json</a>
-        {" · "}
-        Chat:{" "}
-        <a href="/agent/chat?message=Hey%20Supi">/agent/chat</a>
+        Supi answers questions about {owner}, evaluates collaborations, qualifies
+        visitors, negotiates meeting times, and can arrange meetings.
+      </p>
+      <h2 style={{ fontSize: "1.1rem", marginTop: "1.5rem" }}>Discovery</h2>
+      <ul style={{ color: "#52606d" }}>
+        <li>
+          <a href="/llms.txt">/llms.txt</a> — concise AI site map
+        </li>
+        <li>
+          <a href="/.well-known/agent-card.json">/.well-known/agent-card.json</a>{" "}
+          — agent card
+        </li>
+        <li>
+          <a href="/agent/status.json">/agent/status.json</a> — status
+        </li>
+        <li>
+          <a href="/agent-sitemap.xml">/agent-sitemap.xml</a> — discovery URLs
+        </li>
+      </ul>
+      <h2 style={{ fontSize: "1.1rem" }}>Talk</h2>
+      <p style={{ color: "#52606d" }}>
+        Conversational API:{" "}
+        <a href="/agent/chat?message=Hey%20Supi">/agent/chat?message=...</a>
+        . Keep the returned <code>contextId</code> for follow-ups.
       </p>
     </main>
   );

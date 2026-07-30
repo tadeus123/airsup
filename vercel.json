@@ -2,6 +2,8 @@
   "rewrites": [
     { "source": "/.well-known/agent-card.json", "destination": "/api/agent-card" },
     { "source": "/.well-known/agent.json", "destination": "/api/agent-card" },
+    { "source": "/llms.txt", "destination": "/api/llms" },
+    { "source": "/agent-sitemap.xml", "destination": "/api/agent-sitemap" },
     { "source": "/agent/status.json", "destination": "/api/status" },
     { "source": "/agent/chat", "destination": "/api/chat" },
     { "source": "/a2a/v1", "destination": "/a2a/v1" },
