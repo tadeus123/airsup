@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { getConnection, publicOrigin } from "@/lib/connection";
-import { customerSiteUrl, isDirectBrowserNavigation } from "@/lib/host";
+import { customerSiteUrl, shouldHideSupiOnSetupHost } from "@/lib/host";
 import { buildAgentCard } from "@/lib/prompts";
 
 export const runtime = "nodejs";
@@ -9,9 +9,14 @@ export async function GET(request: Request) {
   const { connection } = await getConnection();
   const origin = publicOrigin(connection, new URL(request.url).origin);
 
-  // Direct visits to the Airsup connector must not discover Supi here.
-  if (isDirectBrowserNavigation(request)) {
-    const siteCard = customerSiteUrl(connection, "/.well-known/agent-card.json");
+  // Direct visits to the Airsup *setup* host must not discover Supi here.
+  // Customer-domain traffic (including custom domains on this deployment) stays live.
+  if (shouldHideSupiOnSetupHost(request, connection)) {
+    const siteCard = customerSiteUrl(
+      connection,
+      "/.well-known/agent-card.json",
+      request
+    );
     return NextResponse.json(
       {
         error: "supi_not_on_connector",

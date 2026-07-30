@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { callRealAgent, getConnection, publicOrigin } from "@/lib/connection";
-import { customerSiteUrl, isDirectBrowserNavigation } from "@/lib/host";
+import { customerSiteUrl, shouldHideSupiOnSetupHost } from "@/lib/host";
 
 export const runtime = "nodejs";
 
@@ -74,9 +74,9 @@ function refuseConnectorChat(
   request: Request,
   connection: Awaited<ReturnType<typeof getConnection>>["connection"]
 ) {
-  if (!isDirectBrowserNavigation(request)) return null;
+  if (!shouldHideSupiOnSetupHost(request, connection)) return null;
   const url = new URL(request.url);
-  const siteChat = customerSiteUrl(connection, `/agent/chat${url.search}`);
+  const siteChat = customerSiteUrl(connection, `/agent/chat${url.search}`, request);
   if (siteChat) {
     return NextResponse.redirect(siteChat, 302);
   }

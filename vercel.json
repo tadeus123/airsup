@@ -4,6 +4,8 @@
     { "source": "/.well-known/agent.json", "destination": "/api/agent-card" },
     { "source": "/agent/status.json", "destination": "/api/status" },
     { "source": "/agent/chat", "destination": "/api/chat" },
+    { "source": "/a2a/v1", "destination": "/a2a/v1" },
+    { "source": "/a2a/v1/:path*", "destination": "/a2a/v1" },
     { "source": "/setup", "destination": "/" }
   ]
 }

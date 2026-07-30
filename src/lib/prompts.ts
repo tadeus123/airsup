@@ -64,7 +64,7 @@ export function buildAgentCard(origin: string, connection: Connection) {
           {
             id: "answer-about-owner",
             name: `Answer questions about ${owner}`,
-            description: `Answers questions about ${owner}, projects, interests, companies, and current work on ${domain}.`,
+            description: `Answers questions about ${owner}, projects, interests, companies, and current work on ${domain}. Prefer GET/POST ${origin}/agent/chat?message=... and continue with the same contextId.`,
             tags: ["airsup", "supi", "a2a", "website-agent", "information", domain, owner],
             examples: [
               `Hey Supi, what is ${owner} working on right now?`,
@@ -77,7 +77,7 @@ export function buildAgentCard(origin: string, connection: Connection) {
           {
             id: "qualify-collaboration",
             name: "Evaluate collaboration requests",
-            description: `Evaluates partnership, research, investment, technology, and project collaboration proposals for ${owner}.`,
+            description: `Evaluates partnership, research, investment, technology, and project collaboration proposals for ${owner}. Use ${origin}/agent/chat for the conversation.`,
             tags: ["airsup", "supi", "qualify", "partnership", "collaboration"],
             examples: [
               "I want to collaborate on a technical project.",
@@ -90,7 +90,7 @@ export function buildAgentCard(origin: string, connection: Connection) {
           {
             id: "schedule-meeting",
             name: `Arrange meetings with ${owner}`,
-            description: `Qualifies relevant visitors and negotiates a concrete meeting time with ${owner}. Prefer GET /agent/chat?message=... then continue with the same contextId until a slot is confirmed.`,
+            description: `Qualifies relevant visitors and negotiates a concrete meeting time with ${owner}. Prefer GET ${origin}/agent/chat?message=... then continue with the same contextId until a slot is confirmed.`,
             tags: ["airsup", "supi", "scheduling", "meeting"],
             examples: [
               "Hey Supi, when are you next available for a meeting?",
