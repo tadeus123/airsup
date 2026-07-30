@@ -120,53 +120,51 @@ export function buildAgentCard(origin: string, connection: Connection) {
 export function websiteCursorPrompt(domain: string, connectorOrigin: string): string {
   const d = domain || "YOUR-DOMAIN.com";
   const owner = domain ? humanizeDomainLabel(domain) : d;
-  return `You are installing Airsup / Supi discovery on this website (${d}).
+  return `You are installing invisible Airsup / Supi discovery on this website (${d}).
 
 ════════════════════════════════════════════════════════════════
 #0 PRIORITY — DO NOT BREAK ANYTHING ALREADY ON THIS WEBSITE
 ════════════════════════════════════════════════════════════════
 This is the most important rule. Everything else is secondary.
 
-The existing website is sacred. Visitors must experience the site almost exactly as it is today.
-
-ONLY allowed visible UI change:
-- One tiny 28×28 Supi logo link on the homepage (see section I). Nothing else visible.
+The existing website is sacred. Visitors must experience the site exactly as it is today.
+ZERO human-visible artefacts on existing pages. No logos, buttons, badges, banners, chat widgets, footer links, or nav items.
 
 YOU MUST:
 - Treat this as a surgical, additive install only.
 - Touch the smallest possible surface area.
 - Prefer config-only changes (rewrites, headers, robots, sitemap, llms.txt) over editing app/page code.
-- If a change could affect design, layout, content, SEO visible text, routing of existing pages, analytics, forms, CMS, auth, or performance — DO NOT do it (except the single tiny logo allowed below).
+- If a change could affect design, layout, content, SEO visible text, routing of existing pages, analytics, forms, CMS, auth, or performance — DO NOT do it.
 - If unsure whether something is safe, STOP and leave it unchanged. Ask rather than guess.
-- If any existing path already exists and conflicts (e.g. an existing /supi or /agent page), DO NOT overwrite it — report the conflict and stop for that path.
+- If any existing path already exists and conflicts (e.g. an existing /agent page), DO NOT overwrite it — report the conflict and stop for that path.
 
 YOU MUST NOT:
 - Refactor, restyle, reorganize, rename, or "improve" anything unrelated to Airsup.
-- Edit existing page copy, components, CSS, images, fonts, animations, or layouts (except adding the one tiny logo).
-- Add a Supi chat widget, floating bubble, footer marketing block, badge cluster, banner, or large CTA.
-- Implement the logo as a CSS background-image (that loses alt text).
+- Edit existing page copy, components, CSS, images, fonts, animations, or layouts.
+- Change homepage / marketing / blog / product pages in any visible way.
+- Add a Supi logo, button, chat widget, floating bubble, footer link, badge, banner, or any visible UI.
 - Add hidden SEO text, cloaked content, or display:none marketing about Supi.
 - Delete, move, or rewrite existing routes, files, or dependencies unless strictly required for an additive proxy that does not affect current pages.
 - Change DNS, SSL, redirects, or hosting settings in ways that break the live site.
 - Broaden robots.txt into something that newly blocks important pages.
 
 SUCCESS LOOKS LIKE:
-- Homepage looks the same except one small 28×28 Supi face logo.
+- Homepage and all existing pages look identical before vs after.
 - Existing functionality still works.
-- Additive machine discovery + /supi text page + logo link are live.
+- Only additive machine endpoints / headers / head links / robots / sitemap / llms were added.
 
 If you cannot install discovery without risking breakage, do nothing destructive and report what blocked you.
 
 CONTEXT
 - Supi is already connected in Airsup setup for this domain.
 - The Agent Card identity is "Supi for ${owner}" and is served by Airsup at ${connectorOrigin}.
-- Goal: make AI crawlers and tool-using assistants FIND Supi from the website itself.
+- Goal: make AI crawlers and tool-using assistants FIND Supi from the website itself — invisibly.
 - Stack to install (all of them):
   robots.txt → sitemap.xml → llms.txt → /.well-known/agent-card.json → /agent → /agent/chat
 - ChatGPT does not auto-scan every domain for agent cards yet. More machine routes = higher chance of discovery.
 
 GOAL
-Make https://${d} expose maximum machine-only discovery + a tiny homepage logo to /supi + proxy Airsup at ${connectorOrigin}, without redesigning the site.
+Make https://${d} expose maximum machine-only discovery + proxy Airsup at ${connectorOrigin}, without changing anything visitors already see or use.
 
 ════════════════════════════════════
 A) REVERSE-PROXY / REWRITE (required)
@@ -178,8 +176,8 @@ Do not alter routing for any other existing paths.
 2) /.well-known/agent.json         ← older A2A compatibility (MUST)
 3) /llms.txt                       ← AI site brief (MUST) — proxy to connector
 4) /agent-sitemap.xml              ← discovery URL list (MUST) — proxy to connector
-5) /supi                           ← human-readable Supi page with real text (MUST) — proxy to connector
-6) /supi.svg                       ← Supi logo asset (MUST) — proxy to connector (do not invent a different logo)
+5) /supi                           ← crawlable Supi info page (MUST if path free) — proxy only; do NOT link it from homepage/nav
+6) /supi.svg                       ← optional asset for agent card iconUrl (proxy if path free; do NOT embed on pages)
 7) /a2a/v1                         ← optional; 404/501 OK (ChatGPT uses /agent/chat)
 8) /agent                          ← agent status page for crawlers (MUST if path free)
 9) /agent/status.json              ← machine status (MUST if path free)
@@ -192,6 +190,7 @@ Prefer keeping the site's existing canonical host.
 B) HTTP Link HEADERS on EVERY page (required)
 ════════════════════════════════════
 On ALL HTML responses (homepage + every page), ADD these Link values (comma-separated or multiple Link headers). Do not remove unrelated existing headers.
+These are invisible to humans.
 
   Link: </supi>; rel="service"
   Link: </agent>; rel="service"
@@ -204,14 +203,14 @@ Implement via nginx/Caddy/Vercel headers/platform config — not by rewriting pa
 ════════════════════════════════════
 C) HTML <head> links on EVERY page (required)
 ════════════════════════════════════
-In the shared site layout <head>, APPEND only:
+In the shared site layout <head>, APPEND only (invisible; no on-page UI):
 
   <link rel="service-meta" type="application/json" href="/.well-known/agent-card.json" />
   <link rel="alternate" type="application/json" href="/.well-known/agent-card.json" title="Supi for ${owner}" />
   <link rel="alternate" type="text/plain" href="/llms.txt" title="llms.txt" />
   <link rel="service" href="/supi" title="Supi for ${owner}" />
 
-Do not rearrange existing head tags. Append only.
+Do not rearrange existing head tags. Append only. Do not add visible markup in <body>.
 
 ════════════════════════════════════
 D) robots.txt (required additive update)
@@ -262,39 +261,14 @@ It must clearly name Supi for ${owner}, list capabilities, and include absolute 
 If proxying /llms.txt to Airsup, do not invent a second conflicting file.
 
 ════════════════════════════════════
-I) HOMEPAGE LOGO → /supi PAGE (required — only allowed visible UI)
-════════════════════════════════════
-Logo source: proxy https://${d}/supi.svg from Airsup (same black rounded-square face). Do not invent another icon.
-
-1) Ensure /supi.svg is proxied (section A).
-2) Ensure /supi is proxied to Airsup (section A). That page must have real visible text:
-   - title like "Supi, ${owner}'s official AI agent"
-   - <h1>Supi</h1>
-   - paragraph that Supi is the official AI agent representing ${owner}, can answer questions, evaluate collaborations, and arrange meetings.
-   Prefer Airsup's /supi page rather than a weaker hand-built page.
-3) On the homepage ONLY, add exactly one small logo link (not a chat widget). Prefer a discreet corner — do not redesign the page.
-
-Use this markup (real <img>, never CSS background):
-
-  <a href="/supi" title="Talk to Supi, ${owner}'s official AI agent">
-    <img
-      src="/supi.svg"
-      alt="Talk to Supi, ${owner}'s official AI agent"
-      width="28"
-      height="28"
-    />
-  </a>
-
-Google treats alt text as link anchor text. Keep the homepage otherwise unchanged.
-
-════════════════════════════════════
 G) HARD CONSTRAINTS (non-negotiable)
 ════════════════════════════════════
 1. DO NOT BREAK THE EXISTING WEBSITE. This outranks every discovery goal.
-2. Additive only. Visible UI allowed: ONE 28×28 logo link to /supi. Nothing else.
-3. No hidden human SEO text / cloaking. No CSS-background logo.
-4. Prefer rewrites + headers + robots/sitemap/llms + proxied /supi over editing page components.
-5. On conflicts, stop that item and report it.
+2. Additive only. ZERO visible UI on existing pages — no logo, no button, no badge, no chat widget.
+3. No hidden human SEO text / cloaking.
+4. Prefer rewrites + headers + robots/sitemap/llms over editing page components.
+5. New paths like /supi and /agent are fine for crawlers/tools, but do not link them from the homepage, nav, or footer.
+6. On conflicts, stop that item and report it.
 
 ════════════════════════════════════
 H) VERIFY (prove each, then stop)
@@ -302,28 +276,27 @@ H) VERIFY (prove each, then stop)
 Follow redirects (www/apex OK):
 1) GET /.well-known/agent-card.json → 200; name contains Supi; skills present
 2) GET /.well-known/agent.json → same card
-3) GET /llms.txt → 200 text; mentions Supi, /supi, agent-card, /agent/chat
-4) GET /agent-sitemap.xml → 200 XML; lists /supi + agent + llms.txt + agent-card
-5) GET /supi → 200 HTML with visible <h1>Supi</h1> and descriptive paragraph about ${owner}
-6) GET /supi.svg → 200 image/svg
-7) Homepage HTML contains the 28×28 <img src="/supi.svg"> inside <a href="/supi"> with descriptive alt/title
-8) Homepage Link headers include rel=service, service-desc or service-meta, and llms.txt alternate
-9) Homepage <head> includes service-meta + llms.txt alternate
-10) robots.txt allows OAI-SearchBot / ChatGPT-User and references Sitemap
-11) sitemap.xml includes /supi, /agent, /llms.txt, agent-card
-12) GET /agent/status.json → connected
-13) GET /agent/chat?message=Hey%20Supi → real AI reply
-14) Continue once with contextId → second real reply
-15) /a2a/v1 may be 404/501 — OK
+3) GET /llms.txt → 200 text; mentions Supi, agent-card, /agent/chat
+4) GET /agent-sitemap.xml → 200 XML; lists agent + llms.txt + agent-card
+5) GET /supi → 200 if path was free (OK to skip if conflict)
+6) Homepage has NO new visible Supi logo/button/badge/widget
+7) Homepage Link headers include rel=service, service-desc or service-meta, and llms.txt alternate
+8) Homepage <head> includes service-meta + llms.txt alternate
+9) robots.txt allows OAI-SearchBot / ChatGPT-User and references Sitemap
+10) sitemap.xml includes /agent, /llms.txt, agent-card (and /supi if installed)
+11) GET /agent/status.json → connected
+12) GET /agent/chat?message=Hey%20Supi → real AI reply
+13) Continue once with contextId → second real reply (append non-empty message=)
+14) /a2a/v1 may be 404/501 — OK
 
 Non-breakage:
-16) Homepage otherwise unchanged (only the tiny logo added)
-17) Nav/key pages still work
-18) No unrelated refactors
+15) Homepage and existing pages look identical (no visible artefacts)
+16) Nav/key pages still work
+17) No unrelated refactors
 
 Finish with:
 - Live discovery checklist (numbered)
-- "Existing website unchanged except additive Airsup discovery + tiny Supi logo"
+- "Existing website unchanged — machine-only Airsup discovery"
 - Paths skipped due to conflicts (or None)`;
 }
 
@@ -334,11 +307,11 @@ export function chatgptPrompt(domain: string): string {
 
 Discovery (do these in order — use browsing or HTTP fetch tools):
 1) Open https://${d}/robots.txt — confirm crawlers are allowed and note Sitemap.
-2) Open the Sitemap URL from robots.txt and look for /supi, /agent, /llms.txt, and agent-card.
+2) Open the Sitemap URL from robots.txt and look for /agent, /llms.txt, and agent-card (and /supi if listed).
 3) Open https://${d}/llms.txt — read who Supi is and the listed agent URLs.
-4) Open https://${d}/supi — read the visible human page about Supi.
-5) Open https://${d}/.well-known/agent-card.json
-6) Open https://${d}/agent/status.json
+4) Open https://${d}/.well-known/agent-card.json
+5) Open https://${d}/agent/status.json
+6) Optionally open https://${d}/supi if it exists (discovery page; may not be linked from the homepage).
 
 Then talk (public HTTP API on the website):
 7) Prefer the final host after redirects (often https://www.${d}). Keep using that host for every chat call.

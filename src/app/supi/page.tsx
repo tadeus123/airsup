@@ -18,8 +18,8 @@ export async function generateMetadata(): Promise<Metadata> {
 }
 
 /**
- * Public, crawlable page for Supi — real visible text for search/AI discovery.
- * Linked from a tiny homepage logo; not a chat widget.
+ * Public crawlable page for Supi — machine discovery URL.
+ * Do not link this from the customer homepage/nav; install stays invisible on existing pages.
  */
 export default async function SupiPage() {
   const { connection } = await getConnection();
