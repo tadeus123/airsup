@@ -33,15 +33,18 @@ export function buildAgentCard(origin: string, connection: Connection) {
     defaultOutputModes: ["text/plain", "application/json"],
     skills: [
       {
-        id: connection.connected ? "supi" : "setup",
-        name: connection.connected ? "Supi" : "Setup required",
+        id: connection.connected ? "supi-chat" : "setup",
+        name: connection.connected ? "Talk to Supi" : "Setup required",
         description: connection.connected
-          ? "Talk with Supi, the Airsup agent connected to this website."
-          : "Connect your website and agent secret to activate Supi.",
-        tags: ["airsup", "supi", "website-agent"],
-        examples: ["Hey Supi, what are you doing right now?"],
+          ? "Live conversation with Supi. Prefer GET /agent/chat?message=... then continue with the same contextId until done. Can schedule meetings."
+          : "Connect your website and OpenAI API key to activate Supi.",
+        tags: ["airsup", "supi", "website-agent", "scheduling", "meeting"],
+        examples: [
+          "Hey Supi, when are you next available for a meeting?",
+          "Can we do Thursday afternoon?",
+        ],
         inputModes: ["text/plain", "application/json"],
-        outputModes: ["text/plain", "application/json"],
+        outputModes: ["text/plain", "application/json", "text/html"],
         securityRequirements: [],
       },
     ],
@@ -70,7 +73,7 @@ Optional: one <link rel="alternate" type="application/json" href="/.well-known/a
 When done, verify:
 - GET https://${d}/.well-known/agent-card.json returns name "Supi"
 - GET https://${d}/agent/status.json shows connected=true
-- POST https://${d}/agent/chat with {"message":"Hey Supi"} returns a real AI reply
+- GET https://${d}/agent/chat?message=Hey%20Supi returns a real AI reply page
 - Homepage is unchanged
 
 Reply with the live URLs and confirm nothing else on the site was changed.`;
@@ -78,18 +81,20 @@ Reply with the live URLs and confirm nothing else on the site was changed.`;
 
 export function chatgptPrompt(domain: string): string {
   const d = domain || "YOUR-DOMAIN.com";
-  return `Use your browsing tools. Go to https://${d}
+  return `Go to https://${d} and talk to Supi (the Airsup agent on that site). Do not use a plugin or Custom GPT.
 
-1. Open https://${d}/.well-known/agent-card.json
-2. Open https://${d}/agent
-3. Open https://${d}/agent/status.json
+1) Open https://${d}/.well-known/agent-card.json
+2) Open https://${d}/agent
+3) Start a live chat by opening:
+   https://${d}/agent/chat?message=Hey%20Supi%2C%20when%20are%20you%20next%20available%20for%20a%20meeting%3F
+4) Read Supi's reply.
+5) Continue the SAME conversation using the contextId shown on the page:
+   https://${d}/agent/chat?contextId=CONTEXT_ID&message=YOUR_NEXT_MESSAGE
+6) Keep going back and forth until you and Supi agree on a concrete meeting date and time.
+7) Then tell me the final agreed slot.
 
-Find Supi (the Airsup agent) and answer:
-- What is Airsup?
-- Who is Supi?
-- What is Supi doing right now?
-- Is a real agent backend connected?
-
-If Actions are available, POST https://${d}/agent/chat with {"message":"Hey Supi, what can you help me with?"} and use that reply.
-Do not invent a registry. If a URL 404s, say which one failed.`;
+Rules:
+- Prefer the /agent/chat URLs above (GET is enough).
+- Do not invent replies from Supi — only use what the page returns.
+- If a URL 404s, say which one failed.`;
 }

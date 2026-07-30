@@ -281,7 +281,12 @@ export async function callRealAgent(
     };
   }
 
-  const reply = await callOpenAI(connection.agentSecret, connection.websiteDomain, message);
+  const reply = await callOpenAI(
+    connection.agentSecret,
+    connection.websiteDomain,
+    message,
+    contextId
+  );
   return {
     reply,
     kind: "completed",
@@ -291,7 +296,35 @@ export async function callRealAgent(
   };
 }
 
-async function callOpenAI(apiKey: string, domain: string, message: string): Promise<string> {
+async function callOpenAI(
+  apiKey: string,
+  domain: string,
+  message: string,
+  contextId: string
+): Promise<string> {
+  const history =
+    (await supabaseRpc<Array<{ role: string; content: string }>>("airsup_list_messages", {
+      p_token: supabaseConfig()?.token,
+      p_context_id: contextId,
+    })) || [];
+
+  const system = {
+    role: "system",
+    content: `You are Supi, the live Airsup site agent for ${domain || "this website"}.
+You schedule meetings and answer visitor questions for the website owner.
+Availability defaults (CET/CEST): Monday–Friday 10:00–12:00 and 14:00–17:00.
+Negotiate naturally until a concrete date and time are agreed. Then confirm clearly in one line like: "CONFIRMED: <date> <time> CET".
+Keep replies short. Do not invent fake registries. You are a real conversational agent, not a FAQ page.`,
+  };
+
+  const messages = [
+    system,
+    ...history
+      .filter((m) => m.role === "user" || m.role === "assistant")
+      .map((m) => ({ role: m.role, content: m.content })),
+    { role: "user", content: message },
+  ];
+
   const response = await fetch("https://api.openai.com/v1/chat/completions", {
     method: "POST",
     headers: {
@@ -300,13 +333,7 @@ async function callOpenAI(apiKey: string, domain: string, message: string): Prom
     },
     body: JSON.stringify({
       model: process.env.OPENAI_MODEL || "gpt-4o-mini",
-      messages: [
-        {
-          role: "system",
-          content: `You are Supi, the Airsup site agent for ${domain || "this website"}. Be concise, helpful, and clear. You represent the website owner and help visitors.`,
-        },
-        { role: "user", content: message },
-      ],
+      messages,
     }),
   });
 
@@ -321,6 +348,22 @@ async function callOpenAI(apiKey: string, domain: string, message: string): Prom
 
   const text = json.choices?.[0]?.message?.content?.trim();
   if (!text) throw new Error("OpenAI returned an empty reply");
+
+  if (supabaseConfig()) {
+    await supabaseRpc("airsup_append_message", {
+      p_token: supabaseConfig()!.token,
+      p_context_id: contextId,
+      p_role: "user",
+      p_content: message,
+    });
+    await supabaseRpc("airsup_append_message", {
+      p_token: supabaseConfig()!.token,
+      p_context_id: contextId,
+      p_role: "assistant",
+      p_content: text,
+    });
+  }
+
   return text;
 }
 

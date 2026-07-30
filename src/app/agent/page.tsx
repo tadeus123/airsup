@@ -5,9 +5,9 @@ export const dynamic = "force-dynamic";
 
 export default async function AgentPage() {
   const { connection, storage } = await getConnection();
-  const origin = publicOrigin(connection, "https://airsup.vercel.app");
+  const origin = publicOrigin(connection, "https://airsup-peach.vercel.app");
   const nowDoing = connection.connected
-    ? `Supi is connected for ${connection.websiteDomain} and ready for conversations.`
+    ? `Supi is connected for ${connection.websiteDomain} and ready for live conversations.`
     : "Waiting for setup on the home page to activate Supi.";
 
   return (
@@ -24,8 +24,8 @@ export default async function AgentPage() {
         <h1 style={{ fontSize: "clamp(2rem, 5vw, 3rem)", margin: 0 }}>Supi</h1>
       </div>
       <p style={{ color: "#52606d", lineHeight: 1.55, marginTop: "1rem" }}>
-        Supi is the <strong>Airsup</strong> agent for this website. Airsup connects your domain to
-        your real agent backend.
+        Supi is the live <strong>Airsup</strong> agent for this website. ChatGPT and other agents can
+        talk to Supi without a plugin.
       </p>
       <div
         style={{
@@ -50,19 +50,33 @@ export default async function AgentPage() {
         </strong>
         {nowDoing}
       </div>
+
+      <h2 style={{ fontSize: "1.2rem" }}>How to talk to Supi</h2>
+      <ol style={{ color: "#52606d", lineHeight: 1.55 }}>
+        <li>
+          Open{" "}
+          <a href={`${origin}/agent/chat?message=${encodeURIComponent("Hey Supi, when are you free for a meeting?")}`}>
+            /agent/chat?message=...
+          </a>
+        </li>
+        <li>Read Supi&apos;s reply on that page.</li>
+        <li>
+          Continue with the same <code>contextId</code> from the page, e.g.{" "}
+          <code>/agent/chat?contextId=...&amp;message=Thursday 15:00 works</code>
+        </li>
+        <li>Repeat until a meeting time is confirmed.</li>
+      </ol>
+
       <p style={{ color: "#52606d" }}>
         Domain: <code>{connection.websiteDomain || "(not set)"}</code>
       </p>
       <p style={{ color: "#52606d" }}>
-        Backend: <code>{connection.connected ? "webhook" : "builtin"}</code> · storage:{" "}
+        Backend: <code>{connection.connected ? "openai" : "builtin"}</code> · storage:{" "}
         <code>{storage}</code>
       </p>
       <p style={{ color: "#52606d" }}>
-        Setup: <a href="/">/</a> · Status: <a href="/agent/status.json">/agent/status.json</a> · Card:{" "}
-        <a href="/.well-known/agent-card.json">/.well-known/agent-card.json</a>
-      </p>
-      <p style={{ color: "#52606d" }}>
-        Chat: <code>POST {origin}/agent/chat</code>
+        Card: <a href="/.well-known/agent-card.json">/.well-known/agent-card.json</a> · Status:{" "}
+        <a href="/agent/status.json">/agent/status.json</a>
       </p>
     </main>
   );
