@@ -1,13 +1,17 @@
-# Airsup
+# Airsup (online connector)
+
+Lives in this monorepo at `apps/airsup`.
 
 Online setup for **Airsup** — domain + OpenAI API key → Cursor prompt → Supi on your site.
 
 - **Airsup** = the product / connector
 - **Supi** = the on-site agent
 
+Deployed from https://github.com/tadeus123/airsup (Vercel). Keep this app folder in sync when changing the online connector.
+
 ## How storage works
 
-Your domain + API key are saved in a dedicated **Supabase** project named `airsup` (not your other apps).
+Your domain + API key are saved in a dedicated **Supabase** project named `airsup`.
 
 Required Vercel env vars:
 
@@ -17,24 +21,24 @@ SUPABASE_ANON_KEY=your-anon-key
 AIRSUP_DB_TOKEN=your-db-token
 ```
 
-## Deploy
+## Local (from monorepo root)
 
-1. Import https://github.com/tadeus123/airsup into Vercel
-2. Add the three env vars above → Redeploy
-3. Open the site → domain → API key → copy Cursor prompt onto your website project
+```bash
+pnpm install
+pnpm airsup
+```
+
+Or:
+
+```bash
+pnpm --filter @web-native-agent/airsup dev
+```
 
 ## Public paths
 
-- `/.well-known/agent-card.json` (name: **Supi**)
+- `/.well-known/agent-card.json` (name: **Supi for …** when connected)
+- `/.well-known/agent.json`
 - `/agent`
 - `/agent/status.json`
 - `/agent/chat`
 - `/supi.svg`
-
-## Local
-
-```bash
-npm install
-cp .env.example .env.local   # fill values
-npm run dev
-```

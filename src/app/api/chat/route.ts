@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { callRealAgent, getConnection, publicOrigin } from "@/lib/connection";
+import { customerSiteUrl, isDirectBrowserNavigation } from "@/lib/host";
 
 export const runtime = "nodejs";
 
@@ -40,7 +41,7 @@ function chatHtml(opts: {
 <body>
   <main>
     <h1>Supi</h1>
-    <p class="meta">Live conversation. Keep the same contextId for back-and-forth.</p>
+    <p class="meta">Live conversation on the connected website. Keep the same contextId for back-and-forth.</p>
     <p><strong>You:</strong></p>
     <div class="box">${escapeHtml(opts.message)}</div>
     <p><strong>Supi:</strong></p>
@@ -69,8 +70,28 @@ function escapeHtml(value: string): string {
     .replaceAll('"', "&quot;");
 }
 
-async function handleChat(
+function refuseConnectorChat(
   request: Request,
+  connection: Awaited<ReturnType<typeof getConnection>>["connection"]
+) {
+  if (!isDirectBrowserNavigation(request)) return null;
+  const url = new URL(request.url);
+  const siteChat = customerSiteUrl(connection, `/agent/chat${url.search}`);
+  if (siteChat) {
+    return NextResponse.redirect(siteChat, 302);
+  }
+  return NextResponse.json(
+    {
+      error: "supi_not_on_connector",
+      message:
+        "Supi is not hosted on the Airsup setup site. Connect your website, then talk to Supi on that domain.",
+    },
+    { status: 404 }
+  );
+}
+
+async function handleChat(
+  _request: Request,
   input: { message: string; taskId?: string; contextId?: string }
 ) {
   const message = String(input.message ?? "").trim();
@@ -87,6 +108,10 @@ async function handleChat(
 
 export async function GET(request: Request) {
   try {
+    const { connection } = await getConnection();
+    const blocked = refuseConnectorChat(request, connection);
+    if (blocked) return blocked;
+
     const url = new URL(request.url);
     const message = url.searchParams.get("message") || "";
     const taskId = url.searchParams.get("taskId") || undefined;
@@ -94,7 +119,6 @@ export async function GET(request: Request) {
     const result = await handleChat(request, { message, taskId, contextId });
     if (result instanceof NextResponse) return result;
 
-    const { connection } = await getConnection();
     const origin = publicOrigin(connection, url.origin);
 
     if (wantsHtml(request, url.searchParams)) {
@@ -125,6 +149,10 @@ export async function GET(request: Request) {
 
 export async function POST(request: Request) {
   try {
+    const { connection } = await getConnection();
+    const blocked = refuseConnectorChat(request, connection);
+    if (blocked) return blocked;
+
     const body = (await request.json()) as {
       message?: string;
       taskId?: string;
