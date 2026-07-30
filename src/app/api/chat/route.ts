@@ -90,13 +90,40 @@ function refuseConnectorChat(
   );
 }
 
+function readMessage(input: {
+  message?: string | null;
+  text?: string | null;
+  q?: string | null;
+}): string {
+  return String(input.message ?? input.text ?? input.q ?? "").trim();
+}
+
+function missingMessageResponse(opts: {
+  origin: string;
+  contextId?: string;
+}): NextResponse {
+  const contextId = opts.contextId?.trim();
+  const base = contextId
+    ? `${opts.origin}/agent/chat?contextId=${encodeURIComponent(contextId)}&message=`
+    : `${opts.origin}/agent/chat?message=`;
+  return NextResponse.json(
+    {
+      error: "message is required",
+      hint: "URL-encode your text and put it after message=. Do not GET continueUrl with an empty message value.",
+      example: `${base}Hello%20Supi`,
+      continueUrl: base,
+    },
+    { status: 400 }
+  );
+}
+
 async function handleChat(
   _request: Request,
   input: { message: string; taskId?: string; contextId?: string }
 ) {
   const message = String(input.message ?? "").trim();
   if (!message) {
-    return NextResponse.json({ error: "message is required" }, { status: 400 });
+    return null;
   }
   const { connection } = await getConnection();
   const result = await callRealAgent(connection, message, {
@@ -113,13 +140,18 @@ export async function GET(request: Request) {
     if (blocked) return blocked;
 
     const url = new URL(request.url);
-    const message = url.searchParams.get("message") || "";
+    const origin = publicOrigin(connection, url.origin, request);
+    const message = readMessage({
+      message: url.searchParams.get("message"),
+      text: url.searchParams.get("text"),
+      q: url.searchParams.get("q"),
+    });
     const taskId = url.searchParams.get("taskId") || undefined;
     const contextId = url.searchParams.get("contextId") || undefined;
     const result = await handleChat(request, { message, taskId, contextId });
-    if (result instanceof NextResponse) return result;
-
-    const origin = publicOrigin(connection, url.origin);
+    if (!result) {
+      return missingMessageResponse({ origin, contextId });
+    }
 
     if (wantsHtml(request, url.searchParams)) {
       return new NextResponse(
@@ -134,10 +166,11 @@ export async function GET(request: Request) {
       );
     }
 
+    const continueUrl = `${origin}/agent/chat?contextId=${encodeURIComponent(result.contextId || "")}&message=`;
     return NextResponse.json({
       ...result,
-      continueUrl: `${origin}/agent/chat?contextId=${encodeURIComponent(result.contextId || "")}&message=`,
-      hint: "Append your next message to continueUrl and GET again to continue this conversation.",
+      continueUrl,
+      hint: "Append a URL-encoded next message after message= then GET that full URL. Empty message= returns 400.",
     });
   } catch (error) {
     return NextResponse.json(
@@ -155,16 +188,27 @@ export async function POST(request: Request) {
 
     const body = (await request.json()) as {
       message?: string;
+      text?: string;
+      q?: string;
       taskId?: string;
       contextId?: string;
     };
+    const origin = publicOrigin(connection, new URL(request.url).origin, request);
+    const message = readMessage(body);
     const result = await handleChat(request, {
-      message: String(body.message ?? ""),
+      message,
       taskId: body.taskId,
       contextId: body.contextId,
     });
-    if (result instanceof NextResponse) return result;
-    return NextResponse.json(result);
+    if (!result) {
+      return missingMessageResponse({ origin, contextId: body.contextId });
+    }
+    const continueUrl = `${origin}/agent/chat?contextId=${encodeURIComponent(result.contextId || "")}&message=`;
+    return NextResponse.json({
+      ...result,
+      continueUrl,
+      hint: "Append a URL-encoded next message after message= then GET that full URL. Empty message= returns 400.",
+    });
   } catch (error) {
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "agent_failed" },

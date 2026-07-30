@@ -203,7 +203,28 @@ export function toPublic(
   };
 }
 
-export function publicOrigin(connection: Connection, requestOrigin: string): string {
+export function publicOrigin(
+  connection: Connection,
+  requestOrigin: string,
+  request?: Request
+): string {
+  // Prefer the host the client actually used (www vs apex) so continueUrl
+  // does not force an extra redirect that some HTTP tools mishandle.
+  if (request && connection.websiteDomain) {
+    const domain = connection.websiteDomain.trim().toLowerCase();
+    const host = (
+      request.headers.get("x-forwarded-host") ||
+      request.headers.get("host") ||
+      ""
+    )
+      .split(",")[0]
+      ?.trim()
+      .toLowerCase()
+      .replace(/:\d+$/, "");
+    if (host === domain || host === `www.${domain}`) {
+      return `https://${host}`;
+    }
+  }
   if (connection.websiteDomain) return `https://${connection.websiteDomain}`;
   return requestOrigin.replace(/\/$/, "");
 }

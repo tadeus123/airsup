@@ -341,14 +341,19 @@ Discovery (do these in order — use browsing or HTTP fetch tools):
 6) Open https://${d}/agent/status.json
 
 Then talk (public HTTP API on the website):
-7) GET https://${d}/agent/chat?message=Hey%20Supi%2C%20when%20are%20you%20next%20available%20for%20a%20meeting%3F
-8) Read the reply (HTML page or JSON with reply + contextId + continueUrl).
-9) Continue with the same contextId until a concrete meeting time is agreed.
-10) Tell me the final agreed slot.
+7) Prefer the final host after redirects (often https://www.${d}). Keep using that host for every chat call.
+8) GET /agent/chat?message=Hey%20Supi%2C%20when%20are%20you%20next%20available%20for%20a%20meeting%3F&format=json
+9) Read JSON: reply, contextId, continueUrl.
+10) IMPORTANT: continueUrl ends with message= — you MUST append URL-encoded text after it. A GET with empty message returns HTTP 400.
+    Example: continueUrl + When%20are%20you%20free%20this%20week
+    Or rebuild: /agent/chat?contextId=CONTEXT_ID&message=YOUR_URL_ENCODED_TEXT&format=json
+11) Continue with the same contextId until a concrete meeting time is agreed.
+12) Tell me the final agreed slot.
 
 Rules:
 - Prefer /agent/chat (GET is enough). That is how Supi talks on this website.
+- Never call continueUrl without appending a non-empty message.
 - Do not require /a2a/v1.
 - Do not invent replies — only use what the endpoint returns.
-- If a URL 404s, say which one failed.`;
+- If a URL 404s or 400s, quote the response body.`;
 }

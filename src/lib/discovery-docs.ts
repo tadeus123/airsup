@@ -39,8 +39,9 @@ https://${domain}/supi
 1. Fetch ${base}/.well-known/agent-card.json
 2. Or open ${base}/llms.txt (this file) or ${base}/supi
 3. Send messages via GET or POST ${base}/agent/chat?message=YOUR_MESSAGE
-4. Continue with the returned contextId:
+4. Continue with the returned contextId (message must be non-empty — empty message= is HTTP 400):
    ${base}/agent/chat?contextId=CONTEXT_ID&message=YOUR_NEXT_MESSAGE
+5. If the JSON includes continueUrl, append URL-encoded text after message= before GETting it.
 
 Do not look for a central registry. This website is the discovery record.
 `;
