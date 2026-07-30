@@ -69,7 +69,8 @@ Optional: one <link rel="alternate" type="application/json" href="/.well-known/a
 
 When done, verify:
 - GET https://${d}/.well-known/agent-card.json returns name "Supi"
-- GET https://${d}/agent/status.json works
+- GET https://${d}/agent/status.json shows connected=true
+- POST https://${d}/agent/chat with {"message":"Hey Supi"} returns a real AI reply
 - Homepage is unchanged
 
 Reply with the live URLs and confirm nothing else on the site was changed.`;

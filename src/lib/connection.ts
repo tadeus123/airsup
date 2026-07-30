@@ -109,7 +109,9 @@ export async function saveConnection(input: {
     return { connection, storage: "redis" };
   }
 
-  return { connection, storage: "none" };
+  throw new Error(
+    "Cannot save your API key yet. Add free Upstash Redis in the Vercel project (Integrations → Upstash), redeploy, then run setup again."
+  );
 }
 
 export function toPublic(
