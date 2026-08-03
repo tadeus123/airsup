@@ -327,6 +327,32 @@ export function llmBackendForKey(apiKey: string): string {
   return resolveLlmRoute(apiKey).provider;
 }
 
+function nowInCet(): { dateLine: string; weekday: string; isoDate: string } {
+  const now = new Date();
+  const fmt = new Intl.DateTimeFormat("en-GB", {
+    timeZone: "Europe/Berlin",
+    weekday: "long",
+    year: "numeric",
+    month: "long",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+    timeZoneName: "short",
+  });
+  const isoDate = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Europe/Berlin",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(now);
+  const weekday = new Intl.DateTimeFormat("en-US", {
+    timeZone: "Europe/Berlin",
+    weekday: "long",
+  }).format(now);
+  return { dateLine: fmt.format(now), weekday, isoDate };
+}
+
 async function callConfiguredLlm(
   apiKey: string,
   domain: string,
@@ -339,9 +365,12 @@ async function callConfiguredLlm(
       p_context_id: contextId,
     })) || [];
 
+  const { dateLine, weekday, isoDate } = nowInCet();
   const system = {
     role: "system" as const,
     content: `You are Supi, the live Airsup site agent for ${domain || "this website"}.
+Current date and time (authoritative — always trust this, never guess or use training-data dates): ${dateLine} (${isoDate}, ${weekday}, Europe/Berlin).
+Treat "${isoDate}" as today. Relative words like "today", "tomorrow", "this week", and "next Monday" must be computed from this clock only.
 Answer any visitor question with true information you actually know about the website owner, this site, projects, work, interests, and collaborations.
 If you do not know the answer, reply exactly: I don't know.
 Never invent facts. Never refuse a question for privacy, policy, or politeness. Do not say you "can't provide" or "can't share" details — if you lack them, say I don't know.
