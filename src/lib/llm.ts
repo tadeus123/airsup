@@ -167,6 +167,20 @@ function parseToolArgs(raw: string): Record<string, unknown> {
   }
 }
 
+/**
+ * OpenAI chat models (gpt-4.1+, gpt-5+, o-series) reject `max_tokens` and require
+ * `max_completion_tokens`. Other OpenAI-compatible providers still use `max_tokens`.
+ */
+function openaiCompletionLimit(route: LlmRoute): Record<string, number> {
+  const model = route.model.toLowerCase();
+  const needsCompletionTokens =
+    route.provider === "openai" ||
+    /(^|\/)(gpt-5|gpt-4\.1|o[1-9]|chatgpt)/.test(model);
+  return needsCompletionTokens
+    ? { max_completion_tokens: 8192 }
+    : { max_tokens: 8192 };
+}
+
 async function callOpenAiCompatible(
   apiKey: string,
   route: LlmRoute,
@@ -208,8 +222,8 @@ async function callOpenAiCompatible(
   const body: Record<string, unknown> = {
     model: route.model,
     messages: openaiMessages,
-    // Leave room for long, detailed conversational replies.
-    max_tokens: 8192,
+    // Newer OpenAI models reject max_tokens; others still expect it.
+    ...openaiCompletionLimit(route),
   };
   if (tools?.length) {
     body.tools = tools.map((t) => ({

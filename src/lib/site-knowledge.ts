@@ -594,6 +594,31 @@ export async function ensureSiteKnowledge(
   }
 }
 
+/**
+ * Chat-safe knowledge load: never block on a full crawl when pages already exist.
+ * Stale indexes refresh in the background so /agent/chat stays within client timeouts.
+ */
+export async function getSiteKnowledgeForChat(
+  domain: string
+): Promise<{ meta: KnowledgeMeta | null; pages: SitePage[]; refreshed: boolean }> {
+  const root = normalizeDomain(domain);
+  if (!root) return { meta: null, pages: [], refreshed: false };
+
+  const meta = await getKnowledgeMeta(root);
+  const pages = await listStoredPages(root);
+
+  if (!pages.length) {
+    // Cold start only — must crawl once before answering from the site.
+    return ensureSiteKnowledge(root, { force: true });
+  }
+
+  if (isKnowledgeStale(meta)) {
+    void refreshSiteKnowledgeInBackground(root).catch(() => undefined);
+  }
+
+  return { meta, pages, refreshed: false };
+}
+
 export function buildKnowledgePromptBlock(
   domain: string,
   pages: SitePage[],

@@ -6,7 +6,7 @@ import {
 import { callChatLlm, resolveLlmRoute, type ChatMessage } from "./llm";
 import {
   buildKnowledgePromptBlock,
-  ensureSiteKnowledge,
+  getSiteKnowledgeForChat,
   refreshSiteKnowledgeInBackground,
 } from "./site-knowledge";
 import {
@@ -909,7 +909,7 @@ When a playbook says to screen, book, email, or decline: do that. Use Calendar/G
     : `No owner goals/playbooks are saved yet. For custom workflows (e.g. podcast screening), the website owner can add them on /domain/setup.`;
 
   const knowledge = domain
-    ? await ensureSiteKnowledge(domain)
+    ? await getSiteKnowledgeForChat(domain)
     : { meta: null, pages: [], refreshed: false };
   const knowledgeBlock = buildKnowledgePromptBlock(domain, knowledge.pages, knowledge.meta);
 
