@@ -3,7 +3,7 @@ import { callRealAgent, getConnection, publicOrigin } from "@/lib/connection";
 import { customerSiteUrl, shouldHideSupiOnSetupHost } from "@/lib/host";
 
 export const runtime = "nodejs";
-export const maxDuration = 60;
+export const maxDuration = 90;
 
 function wantsHtml(request: Request, search: URLSearchParams): boolean {
   if (search.get("format") === "json") return false;
