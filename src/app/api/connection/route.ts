@@ -28,6 +28,7 @@ export async function POST(request: Request) {
       websiteDomain?: string;
       agentWebhookUrl?: string;
       agentSecret?: string;
+      ownerTimezone?: string;
     };
     const existing = await getConnection();
     const secret = (body.agentSecret || existing.connection.agentSecret || "").trim();
@@ -35,6 +36,7 @@ export async function POST(request: Request) {
       websiteDomain: body.websiteDomain || "",
       agentWebhookUrl: body.agentWebhookUrl,
       agentSecret: secret,
+      ownerTimezone: body.ownerTimezone,
     });
     const origin = new URL(request.url).origin;
     return NextResponse.json({

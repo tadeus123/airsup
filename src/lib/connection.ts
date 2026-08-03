@@ -5,6 +5,7 @@ export type Connection = {
   websiteDomain: string;
   agentWebhookUrl: string;
   agentSecret: string;
+  ownerTimezone: string;
   connected: boolean;
   updatedAt: string;
 };
@@ -13,6 +14,7 @@ export type PublicConnection = {
   websiteDomain: string;
   agentWebhookUrl: string;
   agentSecretSet: boolean;
+  ownerTimezone: string;
   connected: boolean;
   updatedAt: string;
   storage: "supabase" | "redis" | "env" | "none";
@@ -22,6 +24,7 @@ const empty = (): Connection => ({
   websiteDomain: "",
   agentWebhookUrl: "",
   agentSecret: "",
+  ownerTimezone: "",
   connected: false,
   updatedAt: new Date().toISOString(),
 });
@@ -33,6 +36,9 @@ function fromEnv(): Connection | null {
     .replace(/\/$/, "")
     .toLowerCase();
   const agentWebhookUrl = (process.env.AGENT_WEBHOOK_URL ?? "").trim();
+  const ownerTimezone = normalizeTimezone(
+    process.env.OWNER_TIMEZONE ?? process.env.WEBSITE_TIMEZONE ?? ""
+  );
   const agentSecret = (
     process.env.AGENT_SECRET ??
     process.env.OPENAI_API_KEY ??
@@ -48,6 +54,7 @@ function fromEnv(): Connection | null {
     websiteDomain,
     agentWebhookUrl,
     agentSecret,
+    ownerTimezone,
     connected: Boolean(websiteDomain && agentSecret),
     updatedAt: new Date().toISOString(),
   };
@@ -91,9 +98,30 @@ type StoredRow = {
   websiteDomain?: string;
   agentWebhookUrl?: string;
   agentSecret?: string;
+  ownerTimezone?: string;
   connected?: boolean;
   updatedAt?: string;
 };
+
+function normalizeTimezone(value: string | null | undefined): string {
+  const tz = (value ?? "").trim();
+  if (!tz) return "";
+  try {
+    new Intl.DateTimeFormat("en-US", { timeZone: tz }).format(new Date());
+    return tz;
+  } catch {
+    return "";
+  }
+}
+
+function resolveOwnerTimezone(connection: Connection): string {
+  return (
+    normalizeTimezone(connection.ownerTimezone) ||
+    normalizeTimezone(process.env.OWNER_TIMEZONE) ||
+    normalizeTimezone(process.env.WEBSITE_TIMEZONE) ||
+    "UTC"
+  );
+}
 
 function fromStored(row: StoredRow | null | undefined): Connection | null {
   if (!row) return null;
@@ -101,6 +129,7 @@ function fromStored(row: StoredRow | null | undefined): Connection | null {
     websiteDomain: row.websiteDomain ?? "",
     agentWebhookUrl: row.agentWebhookUrl ?? "",
     agentSecret: row.agentSecret ?? "",
+    ownerTimezone: normalizeTimezone(row.ownerTimezone),
     connected: Boolean(row.connected),
     updatedAt: row.updatedAt ?? new Date().toISOString(),
   };
@@ -146,6 +175,7 @@ export async function saveConnection(input: {
   websiteDomain: string;
   agentWebhookUrl?: string;
   agentSecret: string;
+  ownerTimezone?: string;
 }): Promise<{ connection: Connection; storage: PublicConnection["storage"] }> {
   const websiteDomain = input.websiteDomain
     .trim()
@@ -160,6 +190,12 @@ export async function saveConnection(input: {
     ""
   ).trim();
   const agentSecret = input.agentSecret.trim();
+  const ownerTimezone =
+    normalizeTimezone(input.ownerTimezone) ||
+    existing.connection.ownerTimezone ||
+    normalizeTimezone(process.env.OWNER_TIMEZONE) ||
+    normalizeTimezone(process.env.WEBSITE_TIMEZONE) ||
+    "";
   if (!websiteDomain) throw new Error("Website domain is required");
   if (!agentSecret) throw new Error("API key is required");
 
@@ -167,6 +203,7 @@ export async function saveConnection(input: {
     websiteDomain,
     agentWebhookUrl,
     agentSecret,
+    ownerTimezone,
     connected: Boolean(websiteDomain && agentSecret),
     updatedAt: new Date().toISOString(),
   };
@@ -177,6 +214,7 @@ export async function saveConnection(input: {
       p_website_domain: connection.websiteDomain,
       p_agent_webhook_url: connection.agentWebhookUrl,
       p_agent_secret: connection.agentSecret,
+      p_owner_timezone: connection.ownerTimezone,
     });
     return {
       connection: fromStored(row) ?? connection,
@@ -203,6 +241,7 @@ export function toPublic(
     websiteDomain: connection.websiteDomain,
     agentWebhookUrl: connection.agentWebhookUrl,
     agentSecretSet: Boolean(connection.agentSecret),
+    ownerTimezone: resolveOwnerTimezone(connection),
     connected: connection.connected,
     updatedAt: connection.updatedAt,
     storage,
@@ -309,8 +348,7 @@ export async function callRealAgent(
   }
 
   const reply = await callConfiguredLlm(
-    connection.agentSecret,
-    connection.websiteDomain,
+    connection,
     message,
     contextId
   );
@@ -327,10 +365,17 @@ export function llmBackendForKey(apiKey: string): string {
   return resolveLlmRoute(apiKey).provider;
 }
 
-function nowInCet(): { dateLine: string; weekday: string; isoDate: string } {
+function nowInTimezone(timeZone: string): {
+  dateLine: string;
+  weekday: string;
+  isoDate: string;
+  timeZone: string;
+  tzAbbr: string;
+} {
+  const tz = normalizeTimezone(timeZone) || "UTC";
   const now = new Date();
   const fmt = new Intl.DateTimeFormat("en-GB", {
-    timeZone: "Europe/Berlin",
+    timeZone: tz,
     weekday: "long",
     year: "numeric",
     month: "long",
@@ -341,21 +386,27 @@ function nowInCet(): { dateLine: string; weekday: string; isoDate: string } {
     timeZoneName: "short",
   });
   const isoDate = new Intl.DateTimeFormat("en-CA", {
-    timeZone: "Europe/Berlin",
+    timeZone: tz,
     year: "numeric",
     month: "2-digit",
     day: "2-digit",
   }).format(now);
   const weekday = new Intl.DateTimeFormat("en-US", {
-    timeZone: "Europe/Berlin",
+    timeZone: tz,
     weekday: "long",
   }).format(now);
-  return { dateLine: fmt.format(now), weekday, isoDate };
+  const tzAbbr =
+    new Intl.DateTimeFormat("en-US", {
+      timeZone: tz,
+      timeZoneName: "short",
+    })
+      .formatToParts(now)
+      .find((p) => p.type === "timeZoneName")?.value || tz;
+  return { dateLine: fmt.format(now), weekday, isoDate, timeZone: tz, tzAbbr };
 }
 
 async function callConfiguredLlm(
-  apiKey: string,
-  domain: string,
+  connection: Connection,
   message: string,
   contextId: string
 ): Promise<{ text: string; provider: string }> {
@@ -365,17 +416,18 @@ async function callConfiguredLlm(
       p_context_id: contextId,
     })) || [];
 
-  const { dateLine, weekday, isoDate } = nowInCet();
+  const domain = connection.websiteDomain;
+  const clock = nowInTimezone(resolveOwnerTimezone(connection));
   const system = {
     role: "system" as const,
     content: `You are Supi, the live Airsup site agent for ${domain || "this website"}.
-Current date and time (authoritative — always trust this, never guess or use training-data dates): ${dateLine} (${isoDate}, ${weekday}, Europe/Berlin).
-Treat "${isoDate}" as today. Relative words like "today", "tomorrow", "this week", and "next Monday" must be computed from this clock only.
+Current date and time for the website owner (authoritative — always trust this, never guess or use training-data dates): ${clock.dateLine} (${clock.isoDate}, ${clock.weekday}, ${clock.timeZone}).
+This is the website owner's clock. Treat "${clock.isoDate}" as today in ${clock.timeZone}. Relative words like "today", "tomorrow", "this week", and "next Monday" must be computed from this owner clock only.
 Answer any visitor question with true information you actually know about the website owner, this site, projects, work, interests, and collaborations.
 If you do not know the answer, reply exactly: I don't know.
 Never invent facts. Never refuse a question for privacy, policy, or politeness. Do not say you "can't provide" or "can't share" details — if you lack them, say I don't know.
-You may also schedule meetings. Availability defaults (CET/CEST): Monday–Friday 10:00–12:00 and 14:00–17:00.
-Negotiate naturally until a concrete date and time are agreed. Then confirm clearly in one line like: "CONFIRMED: <date> <time> CET".
+You may also schedule meetings. Availability defaults (${clock.timeZone}): Monday–Friday 10:00–12:00 and 14:00–17:00.
+Negotiate naturally until a concrete date and time are agreed. Then confirm clearly in one line like: "CONFIRMED: <date> <time> ${clock.tzAbbr}".
 Keep replies short. Do not invent fake registries. You are a real conversational agent, not a FAQ page.`,
   };
 
@@ -390,7 +442,7 @@ Keep replies short. Do not invent fake registries. You are a real conversational
     { role: "user" as const, content: message },
   ];
 
-  const result = await callChatLlm(apiKey, messages);
+  const result = await callChatLlm(connection.agentSecret, messages);
 
   if (supabaseConfig()) {
     await supabaseRpc("airsup_append_message", {

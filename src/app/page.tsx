@@ -20,7 +20,11 @@ export default function SetupPage() {
       const res = await fetch("/api/connection", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ websiteDomain, agentSecret }),
+        body: JSON.stringify({
+          websiteDomain,
+          agentSecret,
+          ownerTimezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+        }),
       });
       const json = (await res.json()) as { error?: string; prompt?: string };
       if (!res.ok) throw new Error(json.error || "Setup failed");
