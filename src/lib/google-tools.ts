@@ -106,7 +106,7 @@ export const CALENDAR_AGENT_TOOLS: AgentToolDefinition[] = [
   {
     name: "find_free_busy",
     description:
-      "Check busy intervals on the website owner's primary calendar for a time range.",
+      "REQUIRED before proposing any free/open call slots. Returns busy intervals on the website owner's primary Google Calendar for a time range. Call this (or list_calendar_events) whenever the visitor asks when someone is free or available.",
     parameters: {
       type: "object",
       properties: {

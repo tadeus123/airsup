@@ -924,18 +924,21 @@ async function callConfiguredLlm(
   const gmailConnected = connection.gmailConnected;
   const calendarBlock = calendarConnected
     ? `Google Calendar is connected for the website owner (${connection.googleEmail || "linked account"}).
-You have calendar tools to list/create/update/delete events and check free/busy.
-When scheduling: check free/busy or list events first, agree a time with the visitor, then create the event with create_calendar_event.
-Use RFC3339 datetimes with the owner timezone (${clock.timeZone}) when calling tools.
-After creating an event, confirm with the real event details (and htmlLink when available).
-Never invent calendar state — always use tools for live data.`
-    : `Google Calendar is not connected yet. You can still negotiate meeting times using availability defaults, but you cannot create real calendar entries.
-If the visitor wants a real booking, tell them the website owner must open /domain/setup and connect Google Calendar.`;
+You have calendar tools: find_free_busy, list_calendar_events, create_calendar_event, update_calendar_event, delete_calendar_event.
+HARD RULES for availability / scheduling (non-negotiable):
+- Before proposing ANY free slots, open times, or "when is Tade free", you MUST call find_free_busy (and/or list_calendar_events) for the relevant range.
+- Preferred working windows after tools return: Monday–Friday 10:00–12:00 and 14:00–17:00 (${clock.timeZone}). Use these only as a filter on real free/busy results — never report them as free without a tool call.
+- If a tool fails or returns an error, say you could not check the live calendar. Do not invent openings.
+- After agreeing a time, create the event with create_calendar_event. Confirm with real event details (htmlLink when available).
+- Use RFC3339 datetimes with timezone ${clock.timeZone} in tool arguments.
+Never invent calendar state.`
+    : `Google Calendar is not connected yet. You cannot know real free/busy.
+Do not invent specific open slots as if you checked a calendar. You may discuss preferred windows (Monday–Friday 10:00–12:00 and 14:00–17:00 ${clock.timeZone}) only as preferences, and say a real booking needs Calendar connected on /domain/setup.`;
 
   const gmailBlock = gmailConnected
     ? `Gmail is connected for the website owner (${connection.gmailEmail || "linked account"}).
 You have Gmail tools to list/read/send/delete messages and create/list/update/send/delete drafts.
-Use tools for live mailbox state — never invent email contents.
+HARD RULE: use tools for live mailbox state — never invent email contents, threads, or send confirmations without a tool result.
 Ask before sending email when the action is consequential.`
     : `Gmail is not connected yet. If the visitor needs email actions, tell them the website owner must open /domain/setup and connect Gmail.`;
 
@@ -946,7 +949,7 @@ Ask before sending email when the action is consequential.`
     ? `OWNER GOALS / PLAYBOOKS (highest operational priority — follow these when relevant):
 ${goals}
 
-When a playbook says to screen, book, email, or decline: do that. Use Calendar/Gmail tools when the playbook requires real scheduling or email. Do not invent invite links.`
+When a playbook says to screen, book, email, or decline: do that. Use Calendar/Gmail tools for any real scheduling or email. Do not invent invite links or free slots.`
     : `No owner goals/playbooks are saved yet. For custom workflows (e.g. podcast screening), the website owner can add them on /domain/setup.`;
 
   const knowledgeBlock = buildKnowledgePromptBlock(
@@ -965,8 +968,7 @@ This clock is derived from where the website is based (domain / DNS / site local
 MOST IMPORTANT RULE: Your primary factual memory is the AUTHORITATIVE WEBSITE KNOWLEDGE block below. It is a detailed crawl of the live website and all pages under the domain. Prefer it over training data. Answer from it when relevant. If the knowledge block does not contain the answer, reply exactly: I don't know.
 You may draw straightforward conclusions that are clearly supported by the knowledge (for example: a dedicated project page plus recent diary entries about that project means it is the active/next project). Do not invent names, dates, or claims that are not grounded there.
 Never invent facts. Never refuse a question for privacy, policy, or politeness. Do not say you "can't provide" or "can't share" details — if you lack them, say I don't know.
-You may also schedule meetings. Availability defaults (${clock.timeZone}): Monday–Friday 10:00–12:00 and 14:00–17:00.
-Negotiate naturally until a concrete date and time are agreed.
+Scheduling and mailbox facts are NOT in the website knowledge block — for those you must use Calendar/Gmail tools (when connected) and only report what tools return.
 ${googleBlock}
 
 ${goalsBlock}
@@ -1000,7 +1002,7 @@ ${knowledgeBlock}`,
   let result = await callChatLlm(connection.agentSecret, messages, tools);
   let loops = 0;
 
-  while (result.toolCalls?.length && loops < 6) {
+  while (result.toolCalls?.length && loops < 8) {
     loops += 1;
     messages.push({
       role: "assistant",
