@@ -60,4 +60,5 @@ GOOGLE_CLIENT_SECRET=...
 
 5. Enter an already-connected domain on the home page → `/domain/setup`.
 6. Click **Connect your Google Calendar** and/or **Connect Gmail** (separate OAuth consents).
-7. Tokens are stored per website owner. Supi gets Calendar tools and/or Gmail tools (read/send/delete/drafts) depending on what is connected.
+7. In **Goals / playbooks**, write freeform instructions (or click **Load podcast example**) and **Save**.
+8. Tokens + goals are stored per website owner. Supi follows playbooks and uses Calendar/Gmail tools when connected.

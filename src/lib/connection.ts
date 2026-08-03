@@ -38,6 +38,8 @@ export type Connection = {
   gmailConnected: boolean;
   gmailEmail: string;
   gmailScopes: string;
+  /** Freeform owner goals / playbooks for Supi. */
+  ownerGoals: string;
 };
 
 export type PublicConnection = {
@@ -56,6 +58,7 @@ export type PublicConnection = {
   gmailConnected: boolean;
   gmailEmail: string;
   gmailScopes: string;
+  ownerGoals: string;
   storage: "supabase" | "redis" | "env" | "none";
 };
 
@@ -77,6 +80,7 @@ const empty = (): Connection => ({
   gmailConnected: false,
   gmailEmail: "",
   gmailScopes: "",
+  ownerGoals: "",
 });
 
 function fromEnv(): Connection | null {
@@ -113,6 +117,7 @@ function fromEnv(): Connection | null {
     gmailConnected: false,
     gmailEmail: "",
     gmailScopes: "",
+    ownerGoals: (process.env.OWNER_GOALS ?? "").trim(),
   };
 }
 
@@ -166,6 +171,7 @@ type StoredRow = {
   calendarConnected?: boolean;
   calendarEmail?: string;
   calendarScopes?: string;
+  ownerGoals?: string;
 };
 
 function normalizeTimezone(value: string | null | undefined): string {
@@ -230,6 +236,7 @@ function fromStored(row: StoredRow | null | undefined): Connection | null {
     gmailConnected: Boolean(row.gmailConnected),
     gmailEmail: row.gmailEmail ?? "",
     gmailScopes: row.gmailScopes ?? "",
+    ownerGoals: row.ownerGoals ?? "",
   };
 }
 
@@ -269,6 +276,7 @@ export async function getConnection(): Promise<{
           gmailConnected: Boolean(gmailTokens?.connected || stored.gmailConnected),
           gmailEmail: gmailTokens?.email || stored.gmailEmail || "",
           gmailScopes: gmailTokens?.scopes || stored.gmailScopes || "",
+          ownerGoals: stored.ownerGoals || "",
         },
         storage: "redis",
       };
@@ -316,6 +324,7 @@ export async function saveConnection(input: {
     gmailConnected: existing.connection.gmailConnected,
     gmailEmail: existing.connection.gmailEmail,
     gmailScopes: existing.connection.gmailScopes,
+    ownerGoals: existing.connection.ownerGoals,
   };
 
   if (supabaseConfig()) {
@@ -327,8 +336,21 @@ export async function saveConnection(input: {
       p_owner_timezone: connection.ownerTimezone,
     });
     void refreshSiteKnowledgeInBackground(connection.websiteDomain).catch(() => undefined);
+    const parsed = fromStored(row);
     return {
-      connection: fromStored(row) ?? connection,
+      connection: parsed
+        ? {
+            ...parsed,
+            agentSecret: connection.agentSecret,
+            googleConnected: connection.googleConnected,
+            googleEmail: connection.googleEmail,
+            googleScopes: connection.googleScopes,
+            gmailConnected: connection.gmailConnected,
+            gmailEmail: connection.gmailEmail,
+            gmailScopes: connection.gmailScopes,
+            ownerGoals: parsed.ownerGoals || connection.ownerGoals,
+          }
+        : connection,
       storage: "supabase",
     };
   }
@@ -632,8 +654,60 @@ export function toPublic(
     gmailConnected: connection.gmailConnected,
     gmailEmail: connection.gmailEmail,
     gmailScopes: connection.gmailScopes,
+    ownerGoals: connection.ownerGoals,
     storage,
   };
+}
+
+export async function saveOwnerGoals(
+  ownerGoals: string
+): Promise<{ connection: Connection; storage: PublicConnection["storage"] }> {
+  const existing = await getConnection();
+  if (!existing.connection.connected || !existing.connection.websiteDomain) {
+    throw new Error("Connect your domain and AI API key before saving goals.");
+  }
+  const trimmed = ownerGoals.slice(0, 20_000);
+
+  if (supabaseConfig()) {
+    const row = await supabaseRpc<{ ownerGoals?: string; updatedAt?: string }>(
+      "airsup_save_owner_goals",
+      {
+        p_token: supabaseConfig()!.token,
+        p_owner_goals: trimmed,
+      }
+    );
+    return {
+      connection: {
+        ...existing.connection,
+        ownerGoals: row?.ownerGoals ?? trimmed,
+        updatedAt: row?.updatedAt ?? new Date().toISOString(),
+      },
+      storage: "supabase",
+    };
+  }
+
+  const client = await redis();
+  if (client) {
+    const prev = (await client.get<RedisStored>("airsup:connection")) || {
+      ...existing.connection,
+    };
+    const next: RedisStored = {
+      ...prev,
+      ownerGoals: trimmed,
+      updatedAt: new Date().toISOString(),
+    };
+    await client.set("airsup:connection", next);
+    return {
+      connection: {
+        ...existing.connection,
+        ownerGoals: trimmed,
+        updatedAt: next.updatedAt,
+      },
+      storage: "redis",
+    };
+  }
+
+  throw new Error("No storage configured for owner goals.");
 }
 
 export function publicOrigin(
@@ -826,6 +900,14 @@ Ask before sending email when the action is consequential.`
 
   const googleBlock = `${calendarBlock}\n${gmailBlock}`;
 
+  const goals = connection.ownerGoals.trim();
+  const goalsBlock = goals
+    ? `OWNER GOALS / PLAYBOOKS (highest operational priority — follow these when relevant):
+${goals}
+
+When a playbook says to screen, book, email, or decline: do that. Use Calendar/Gmail tools when the playbook requires real scheduling or email. Do not invent invite links.`
+    : `No owner goals/playbooks are saved yet. For custom workflows (e.g. podcast screening), the website owner can add them on /domain/setup.`;
+
   const knowledge = domain
     ? await ensureSiteKnowledge(domain)
     : { meta: null, pages: [], refreshed: false };
@@ -842,6 +924,9 @@ Never invent facts. Never refuse a question for privacy, policy, or politeness. 
 You may also schedule meetings. Availability defaults (${clock.timeZone}): Monday–Friday 10:00–12:00 and 14:00–17:00.
 Negotiate naturally until a concrete date and time are agreed.
 ${googleBlock}
+
+${goalsBlock}
+
 Keep replies short unless the visitor asks for detail. Do not invent fake registries. You are a real conversational agent grounded in the website.
 
 ${knowledgeBlock}`,

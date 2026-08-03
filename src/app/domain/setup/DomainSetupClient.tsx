@@ -12,33 +12,52 @@ type Status = {
   gmailEmail: string;
   googleConnected?: boolean;
   googleEmail?: string;
+  ownerGoals?: string;
   oauthConfigured: boolean;
+  example?: string;
   error?: string;
 };
 
 export default function DomainSetupClient() {
   const search = useSearchParams();
   const [status, setStatus] = useState<Status | null>(null);
-  const [busy, setBusy] = useState<"calendar" | "gmail" | null>(null);
+  const [busy, setBusy] = useState<"calendar" | "gmail" | "goals" | null>(null);
+  const [goals, setGoals] = useState("");
+  const [goalsSaved, setGoalsSaved] = useState(false);
+  const [example, setExample] = useState("");
   const [error, setError] = useState("");
 
-  const calendarFlash = search.get("google") === "connected" || search.get("calendar") === "connected";
+  const calendarFlash =
+    search.get("google") === "connected" || search.get("calendar") === "connected";
   const gmailFlash = search.get("gmail") === "connected";
   const errorFlash = search.get("error")
     ? decodeURIComponent(search.get("error") || "")
     : "";
 
-  async function loadStatus() {
-    const res = await fetch("/api/google/status");
-    const json = (await res.json()) as Status;
-    if (!res.ok) throw new Error(json.error || "Failed to load status");
-    setStatus({
+  function normalizeStatus(json: Status): Status {
+    return {
       ...json,
       calendarConnected: Boolean(json.calendarConnected ?? json.googleConnected),
       calendarEmail: json.calendarEmail || json.googleEmail || "",
       gmailConnected: Boolean(json.gmailConnected),
       gmailEmail: json.gmailEmail || "",
-    });
+      ownerGoals: json.ownerGoals || "",
+    };
+  }
+
+  async function loadStatus() {
+    const [googleRes, goalsRes] = await Promise.all([
+      fetch("/api/google/status"),
+      fetch("/api/goals"),
+    ]);
+    const googleJson = (await googleRes.json()) as Status;
+    const goalsJson = (await goalsRes.json()) as Status;
+    if (!googleRes.ok) throw new Error(googleJson.error || "Failed to load status");
+    if (!goalsRes.ok) throw new Error(goalsJson.error || "Failed to load goals");
+    const merged = normalizeStatus({ ...googleJson, ...goalsJson });
+    setStatus(merged);
+    setGoals(merged.ownerGoals || "");
+    setExample(goalsJson.example || "");
   }
 
   useEffect(() => {
@@ -82,13 +101,31 @@ export default function DomainSetupClient() {
       });
       const json = (await res.json()) as Status & { error?: string };
       if (!res.ok) throw new Error(json.error || "Disconnect failed");
-      setStatus({
-        ...json,
-        calendarConnected: Boolean(json.calendarConnected ?? json.googleConnected),
-        calendarEmail: json.calendarEmail || json.googleEmail || "",
-        gmailConnected: Boolean(json.gmailConnected),
-        gmailEmail: json.gmailEmail || "",
+      setStatus(normalizeStatus(json));
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function saveGoals() {
+    setBusy("goals");
+    setError("");
+    setGoalsSaved(false);
+    try {
+      const res = await fetch("/api/goals", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ ownerGoals: goals }),
       });
+      const json = (await res.json()) as Status & { error?: string };
+      if (!res.ok) throw new Error(json.error || "Could not save goals");
+      const merged = normalizeStatus(json);
+      setStatus((prev) => ({ ...(prev || merged), ...merged }));
+      setGoals(merged.ownerGoals || "");
+      setGoalsSaved(true);
+      setTimeout(() => setGoalsSaved(false), 2000);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
@@ -101,14 +138,11 @@ export default function DomainSetupClient() {
   const oauthReady = status?.oauthConfigured !== false;
 
   return (
-    <main className="setup">
-      <h1>Connect Google.</h1>
+    <main className="setup setup-wide">
+      <h1>Domain setup.</h1>
       {status?.websiteDomain ? (
         <p className="setup-sub">{status.websiteDomain}</p>
       ) : null}
-      <p className="setup-sub">
-        Connect the website owner&apos;s Calendar and Gmail so Supi can schedule and email.
-      </p>
 
       {!status && !error ? <p className="setup-sub">Loading…</p> : null}
 
@@ -117,55 +151,100 @@ export default function DomainSetupClient() {
       ) : null}
 
       {status?.connected ? (
-        <div className="setup-actions">
-          {!calendarConnected ? (
-            <button
-              type="button"
-              className="setup-copy"
-              onClick={() => void connect("calendar")}
-              disabled={busy !== null || !oauthReady}
-            >
-              {busy === "calendar" ? "…" : "Connect your Google Calendar"}
-            </button>
-          ) : (
-            <>
-              <p className="ok">
-                Calendar linked as {status.calendarEmail || "Google account"}.
-              </p>
-              <button
-                type="button"
-                className="setup-copy setup-copy-muted"
-                onClick={() => void disconnect("calendar")}
-                disabled={busy !== null}
-              >
-                {busy === "calendar" ? "…" : "Disconnect Calendar"}
-              </button>
-            </>
-          )}
+        <>
+          <section className="setup-section">
+            <h2>Google</h2>
+            <p className="setup-sub">
+              Connect Calendar and Gmail so Supi can book calls and send invites.
+            </p>
+            <div className="setup-actions">
+              {!calendarConnected ? (
+                <button
+                  type="button"
+                  className="setup-copy"
+                  onClick={() => void connect("calendar")}
+                  disabled={busy !== null || !oauthReady}
+                >
+                  {busy === "calendar" ? "…" : "Connect your Google Calendar"}
+                </button>
+              ) : (
+                <>
+                  <p className="ok">
+                    Calendar linked as {status.calendarEmail || "Google account"}.
+                  </p>
+                  <button
+                    type="button"
+                    className="setup-copy setup-copy-muted"
+                    onClick={() => void disconnect("calendar")}
+                    disabled={busy !== null}
+                  >
+                    {busy === "calendar" ? "…" : "Disconnect Calendar"}
+                  </button>
+                </>
+              )}
 
-          {!gmailConnected ? (
-            <button
-              type="button"
-              className="setup-copy"
-              onClick={() => void connect("gmail")}
-              disabled={busy !== null || !oauthReady}
-            >
-              {busy === "gmail" ? "…" : "Connect Gmail"}
-            </button>
-          ) : (
-            <>
-              <p className="ok">Gmail linked as {status.gmailEmail || "Google account"}.</p>
+              {!gmailConnected ? (
+                <button
+                  type="button"
+                  className="setup-copy"
+                  onClick={() => void connect("gmail")}
+                  disabled={busy !== null || !oauthReady}
+                >
+                  {busy === "gmail" ? "…" : "Connect Gmail"}
+                </button>
+              ) : (
+                <>
+                  <p className="ok">
+                    Gmail linked as {status.gmailEmail || "Google account"}.
+                  </p>
+                  <button
+                    type="button"
+                    className="setup-copy setup-copy-muted"
+                    onClick={() => void disconnect("gmail")}
+                    disabled={busy !== null}
+                  >
+                    {busy === "gmail" ? "…" : "Disconnect Gmail"}
+                  </button>
+                </>
+              )}
+            </div>
+          </section>
+
+          <section className="setup-section">
+            <h2>Goals / playbooks</h2>
+            <p className="setup-sub">
+              Freeform instructions for Supi — podcast screening, intros, booking rules, anything.
+              Saved text is injected into the agent. Not hardcoded product logic.
+            </p>
+            <textarea
+              className="setup-prompt setup-goals"
+              value={goals}
+              onChange={(e) => setGoals(e.target.value)}
+              placeholder={example || "Write how Supi should screen, book, and follow up…"}
+              rows={14}
+            />
+            <div className="setup-actions setup-actions-row">
               <button
                 type="button"
-                className="setup-copy setup-copy-muted"
-                onClick={() => void disconnect("gmail")}
+                className="setup-copy"
+                onClick={() => void saveGoals()}
                 disabled={busy !== null}
               >
-                {busy === "gmail" ? "…" : "Disconnect Gmail"}
+                {busy === "goals" ? "…" : goalsSaved ? "Saved" : "Save"}
               </button>
-            </>
-          )}
-        </div>
+              {example ? (
+                <button
+                  type="button"
+                  className="setup-copy setup-copy-muted"
+                  onClick={() => setGoals(example)}
+                  disabled={busy !== null}
+                >
+                  Load podcast example
+                </button>
+              ) : null}
+            </div>
+          </section>
+        </>
       ) : null}
 
       {status && status.oauthConfigured === false ? (
