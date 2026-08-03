@@ -28,7 +28,7 @@ export const CALENDAR_AGENT_TOOLS: AgentToolDefinition[] = [
         },
         maxResults: {
           type: "integer",
-          description: "Max events to return (1-20). Default 10.",
+          description: "Max events to return (1-50). Default 25.",
         },
         query: {
           type: "string",
@@ -490,9 +490,9 @@ async function listEvents(accessToken: string, args: Record<string, unknown>) {
   const now = new Date();
   const timeMin = String(args.timeMin || now.toISOString());
   const timeMax = String(
-    args.timeMax || new Date(now.getTime() + 14 * 24 * 60 * 60 * 1000).toISOString()
+    args.timeMax || new Date(now.getTime() + 90 * 24 * 60 * 60 * 1000).toISOString()
   );
-  const maxResults = clampInt(args.maxResults, 10, 1, 20);
+  const maxResults = clampInt(args.maxResults, 25, 1, 50);
   const params = new URLSearchParams({
     singleEvents: "true",
     orderBy: "startTime",

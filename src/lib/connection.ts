@@ -3,6 +3,10 @@ import {
   executeGoogleTool,
   toolsForGoogleConnections,
 } from "./google-tools";
+import {
+  looksLikeDontKnow,
+  prefetchLiveContext,
+} from "./live-lookup";
 import { callChatLlm, resolveLlmRoute, type ChatMessage } from "./llm";
 import {
   buildKnowledgePromptBlock,
@@ -972,6 +976,15 @@ When a playbook says to screen, book, email, or decline: do that. Use Calendar/G
     message
   );
 
+  const prefetch = await prefetchLiveContext({
+    message,
+    calendarConnected,
+    gmailConnected,
+  });
+  const liveLookupBlock = prefetch?.block
+    ? `\n${prefetch.block}\n`
+    : "";
+
   const system: ChatMessage = {
     role: "system",
     content: `You are Supi, the live Airsup site agent for ${domain || "this website"}.
@@ -981,7 +994,8 @@ This clock is derived from where the website is based (domain / DNS / site local
 MOST IMPORTANT RULES for facts:
 1) Website facts (projects, bio, companies, public site content): use the AUTHORITATIVE WEBSITE KNOWLEDGE block below. Prefer it over training data. You may draw straightforward conclusions clearly supported by that knowledge. Do not invent names, dates, or claims that are not grounded there.
 2) Live personal / operational facts (calendar, free/busy, meetings, travel, flights, arrivals, whereabouts, email contents): these are NOT in the website knowledge block. When Calendar and/or Gmail are connected, you MUST use those tools to look the answer up before saying you don't know. Only say "I don't know" after a real tool lookup finds nothing relevant (or tools are disconnected / fail).
-3) Never invent facts. Never refuse a question for privacy, policy, or politeness. Do not say you "can't provide" or "can't share" details — look it up with tools when possible; otherwise say I don't know.
+3) If a LIVE LOOKUP RESULTS block is present below, it was already fetched for this turn — treat it as ground truth for calendar/email/travel questions. Answer from it. Do not ignore it and say I don't know.
+4) Never invent facts. Never refuse a question for privacy, policy, or politeness. Do not say you "can't provide" or "can't share" details — look it up with tools when possible; otherwise say I don't know.
 ${googleBlock}
 
 ${goalsBlock}
@@ -996,7 +1010,8 @@ CONVERSATION STYLE (critical):
 - Only use the exact reply "I don't know" when (a) the fact should come from website knowledge and it is missing, or (b) Calendar/Gmail tools were checked when relevant and still found nothing. Never use "I don't know" as a shortcut instead of looking in Calendar/Gmail.
 Do not invent fake registries. You are a real conversational agent grounded in the website.
 
-${knowledgeBlock}`,
+${knowledgeBlock}
+${liveLookupBlock}`,
   };
 
   const messages: ChatMessage[] = [
@@ -1015,7 +1030,7 @@ ${knowledgeBlock}`,
     gmailConnected,
   });
   const toolsOffered = tools.map((t) => t.name);
-  const toolsCalled: ToolCallTrace[] = [];
+  const toolsCalled: ToolCallTrace[] = [...(prefetch?.toolsCalled || [])];
   const { intentCalendar, intentGmail } = detectToolIntent(message);
 
   let result = await callChatLlm(connection.agentSecret, messages, tools);
@@ -1046,7 +1061,46 @@ ${knowledgeBlock}`,
     result = await callChatLlm(connection.agentSecret, messages, tools);
   }
 
-  const text = result.text?.trim() || "Done.";
+  let text = result.text?.trim() || "Done.";
+
+  // If the model still says IDK despite live prefetch hits, force one grounded rewrite.
+  if (
+    looksLikeDontKnow(text) &&
+    prefetch &&
+    (prefetch.calendarHitCount > 0 || prefetch.gmailHitCount > 0)
+  ) {
+    messages.push({ role: "assistant", content: text });
+    messages.push({
+      role: "user",
+      content:
+        "You said you don't know, but LIVE LOOKUP RESULTS above already contain Calendar and/or Gmail data for this turn. Re-read that block and answer the original question from those results only. If a matching trip/flight/meeting exists, state the dates and times clearly. Do not say I don't know unless the block truly has no relevant match.",
+    });
+    result = await callChatLlm(connection.agentSecret, messages, tools);
+    while (result.toolCalls?.length && loops < 10) {
+      loops += 1;
+      messages.push({
+        role: "assistant",
+        content: result.text || "",
+        toolCalls: result.toolCalls.map((t) => ({
+          id: t.id,
+          name: t.name,
+          arguments: JSON.stringify(t.arguments || {}),
+        })),
+      });
+      for (const call of result.toolCalls) {
+        const toolResult = await executeGoogleTool(call.name, call.arguments || {});
+        toolsCalled.push({ name: call.name, ok: toolResultOk(toolResult) });
+        messages.push({
+          role: "tool",
+          toolCallId: call.id,
+          content: toolResult,
+        });
+      }
+      result = await callChatLlm(connection.agentSecret, messages, tools);
+    }
+    text = result.text?.trim() || text;
+  }
+
   const { usedOk, missReason } = evaluateToolUse({
     toolsOffered,
     toolsCalled,
