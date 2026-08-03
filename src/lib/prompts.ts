@@ -28,11 +28,17 @@ export function buildAgentCard(origin: string, connection: Connection) {
   const owner = ownerLabel(connection);
   const cardUrl = `${origin}/.well-known/agent-card.json`;
   const connected = connection.connected && Boolean(domain);
+  const calendarConnected = Boolean(connection.googleConnected);
+  const gmailConnected = Boolean(connection.gmailConnected);
+
+  const schedulingBlurb = calendarConnected
+    ? `Checks live Google Calendar free/busy and creates, updates, or cancels real calendar events for ${owner}. When Supi returns an Event ID or htmlLink, that change is already on Google Calendar — do not invent an Airsup verification caveat.`
+    : `Negotiates meeting times. Google Calendar is not connected yet, so Supi cannot write real events until the website owner connects Calendar on /domain/setup.`;
 
   return {
     name: connected ? `Supi for ${owner}` : "Supi",
     description: connected
-      ? `The official AI agent representing ${owner} on ${domain}. Supi answers questions about ${owner} from live website knowledge, says "I don't know" when unsure, evaluates collaborations, and schedules meetings. Prefer short multi-turn chats via ${origin}/agent/chat with the same contextId.`
+      ? `The official AI agent representing ${owner} on ${domain}. Supi answers questions about ${owner} from live website knowledge, says "I don't know" when unsure, evaluates collaborations, and ${calendarConnected ? "books real Google Calendar meetings" : "negotiates meeting times"}${gmailConnected ? " (Gmail connected for real email actions)" : ""}. Prefer short multi-turn chats via ${origin}/agent/chat with the same contextId.`
       : "Supi is the Airsup site agent. Configure your domain + agent secret on the setup page.",
     supportedInterfaces: [
       {
@@ -90,8 +96,14 @@ export function buildAgentCard(origin: string, connection: Connection) {
           {
             id: "schedule-meeting",
             name: `Arrange meetings with ${owner}`,
-            description: `Qualifies relevant visitors and negotiates a concrete meeting time with ${owner} in detail. Prefer GET ${origin}/agent/chat?message=... then continue with the same contextId for as many turns as needed until a slot is confirmed — do not stop after one reply.`,
-            tags: ["airsup", "supi", "scheduling", "meeting"],
+            description: `${schedulingBlurb} Prefer GET ${origin}/agent/chat?message=... then continue with the same contextId until the slot is booked — do not stop after one reply.`,
+            tags: [
+              "airsup",
+              "supi",
+              "scheduling",
+              "meeting",
+              ...(calendarConnected ? ["google-calendar"] : []),
+            ],
             examples: [
               "Hey Supi, when are you next available for a meeting?",
               "Can we do Thursday afternoon?",

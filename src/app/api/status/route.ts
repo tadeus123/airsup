@@ -36,6 +36,12 @@ export async function GET(request: Request) {
       : "Waiting for setup: enter website domain + AI API key on the home page.",
     connected: connection.connected,
     websiteDomain: connection.websiteDomain,
+    calendarConnected: Boolean(connection.googleConnected),
+    gmailConnected: Boolean(connection.gmailConnected),
+    scheduling:
+      connection.googleConnected
+        ? "Supi writes real Google Calendar events. Event IDs from Supi are authoritative — there is no separate verification layer."
+        : "Google Calendar is not connected; Supi cannot create real events yet.",
     backend: connection.connected
       ? connection.agentWebhookUrl
         ? "webhook"

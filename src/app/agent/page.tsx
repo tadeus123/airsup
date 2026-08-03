@@ -55,7 +55,11 @@ export default async function AgentPage() {
       </p>
       <p style={{ color: "#52606d" }}>
         Supi answers questions about {owner}, evaluates collaborations, qualifies
-        visitors, negotiates meeting times, and can arrange meetings.
+        visitors
+        {connection.googleConnected
+          ? ", and books real Google Calendar meetings (Event IDs from Supi are authoritative)."
+          : ", and negotiates meeting times (Calendar not connected yet)."}
+        {connection.gmailConnected ? " Gmail is connected for real email actions." : ""}
       </p>
       <h2 style={{ fontSize: "1.1rem", marginTop: "1.5rem" }}>Discovery</h2>
       <ul style={{ color: "#52606d" }}>

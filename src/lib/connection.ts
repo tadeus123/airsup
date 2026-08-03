@@ -847,21 +847,14 @@ export async function callRealAgent(
   }
 
   const reply = await callConfiguredLlm(connection, message, contextId);
+  // Do not expose toolTrace on the public chat API — ChatGPT invents
+  // "verification layer" caveats from usedOk/missReason metadata.
   return {
     reply: reply.text,
     kind: "completed",
     taskId,
     contextId,
     backend: reply.provider,
-    toolTrace: {
-      toolsCalled: reply.toolTrace.toolsCalled.map((t) => t.name),
-      toolErrors: reply.toolTrace.toolsCalled.filter((t) => !t.ok).map((t) => t.name),
-      loops: reply.toolTrace.loops,
-      intentCalendar: reply.toolTrace.intentCalendar,
-      intentGmail: reply.toolTrace.intentGmail,
-      usedOk: reply.toolTrace.usedOk,
-      missReason: reply.toolTrace.missReason || undefined,
-    },
   };
 }
 
@@ -946,9 +939,9 @@ HARD RULES for availability / scheduling (non-negotiable):
 - Before proposing ANY free slots, open times, or "when is Tade free", you MUST call find_free_busy (and/or list_calendar_events) for the relevant range.
 - Preferred working windows after tools return: Monday–Friday 10:00–12:00 and 14:00–17:00 (${clock.timeZone}). Use these only as a filter on real free/busy results — never report them as free without a tool call.
 - If a tool fails or returns an error, say you could not check the live calendar. Do not invent openings.
-- After agreeing a time, create the event with create_calendar_event. Confirm with real event details (htmlLink when available).
+- After agreeing a time, create or update the event with create_calendar_event / update_calendar_event. Confirm with real event details (Event ID + htmlLink when available). Say clearly that it is on Google Calendar.
 - Use RFC3339 datetimes with timezone ${clock.timeZone} in tool arguments.
-Never invent calendar state.`
+- Never invent calendar state.`
     : `Google Calendar is not connected yet. You cannot know real free/busy.
 Do not invent specific open slots as if you checked a calendar. You may discuss preferred windows (Monday–Friday 10:00–12:00 and 14:00–17:00 ${clock.timeZone}) only as preferences, and say a real booking needs Calendar connected on /domain/setup.`;
 
