@@ -628,6 +628,12 @@ function tokenizeQuery(query: string): string[] {
 /** Rank cached pages for a question so chat retrieves relevant chunks, not the whole diary. */
 export function rankPagesForQuery(pages: SitePage[], query: string): SitePage[] {
   const terms = tokenizeQuery(query);
+  const q = query.toLowerCase();
+  const wantsProject =
+    /\b(project|projects|building|working|next|current|active|eisenkind|robot|robots|humanoid|startup|company)\b/i.test(
+      q
+    );
+
   if (!terms.length || pages.length <= 1) {
     return [...pages].sort((a, b) => {
       if (a.path === "/" && b.path !== "/") return -1;
@@ -649,7 +655,12 @@ export function rankPagesForQuery(pages: SitePage[], query: string): SitePage[] 
       if (content.includes(term)) score += 1;
     }
     if (path === "/" || path === "/index") score += 1;
-    if (/eisenkind|project|about|work|robot/i.test(path)) score += 2;
+    if (/eisenkind|project|about|work|robot|company|office/i.test(path + " " + title)) {
+      score += wantsProject ? 12 : 2;
+    }
+    if (wantsProject && /eisenkind|humanoid|robot/i.test(content.slice(0, 2_000))) {
+      score += 6;
+    }
     return { page, score };
   });
 
