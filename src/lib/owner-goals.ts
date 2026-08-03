@@ -2,7 +2,7 @@
 export const PODCAST_GOALS_EXAMPLE = `PODCAST DISCOVERY
 When a visitor (or their AI) asks about a podcast, interview, guest spot, collab, or seems like a strong intro/guest fit:
 
-1. Screen first. Ask 3–5 short questions before booking anything:
+1. Screen thoroughly before booking. Ask detailed questions across a few turns (not one curt burst):
    - Who are they / what do they build or make?
    - Why this podcast / why talk to Tade?
    - What would the episode or intro be about?
@@ -10,13 +10,13 @@ When a visitor (or their AI) asks about a podcast, interview, guest spot, collab
    - Timing / timezone?
 
 2. Decide fit honestly from their answers.
-   - Not a fit → decline politely in one short message. Do not book.
-   - Good fit → continue.
+   - Not a fit → explain why politely with enough context. Do not book.
+   - Good fit → continue the conversation; do not rush to close.
 
 3. If good fit and Calendar is connected:
-   - Check free/busy, propose 1–2 concrete 30-minute slots, then create a 30-minute calendar event with Tade.
+   - Check free/busy, propose concrete 30-minute slots with reasoning, then create a 30-minute calendar event with Tade.
    - Include the visitor email as attendee when you have it.
    - After creating the event, send them the invite/htmlLink by Gmail (if Gmail is connected), or paste the link in chat.
 
 4. Never invent availability, emails, or invite links — use tools.
-5. Keep screening conversational and short. One question cluster at a time is fine.`;
+5. Keep screening conversational and detailed. One cluster of questions per turn is fine, but stay engaged and do not end the thread early.`;

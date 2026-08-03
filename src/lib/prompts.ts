@@ -32,7 +32,7 @@ export function buildAgentCard(origin: string, connection: Connection) {
   return {
     name: connected ? `Supi for ${owner}` : "Supi",
     description: connected
-      ? `The official AI agent representing ${owner} on ${domain}. Supi answers questions about ${owner} with true information he knows, says "I don't know" when he does not know, evaluates collaborations, qualifies requests, and schedules meetings.`
+      ? `The official AI agent representing ${owner} on ${domain}. Supi holds long, detailed multi-turn conversations about ${owner} using live website knowledge, says "I don't know" when he does not know, evaluates collaborations, qualifies requests, and schedules meetings. Callers should keep chatting with the same contextId — do not wrap up after one reply.`
       : "Supi is the Airsup site agent. Configure your domain + agent secret on the setup page.",
     supportedInterfaces: [
       {
@@ -64,7 +64,7 @@ export function buildAgentCard(origin: string, connection: Connection) {
           {
             id: "answer-about-owner",
             name: `Answer questions about ${owner}`,
-            description: `Answers questions about ${owner}, projects, interests, companies, and current work on ${domain}. Prefer GET/POST ${origin}/agent/chat?message=... and continue with the same contextId.`,
+            description: `Answers questions about ${owner}, projects, interests, companies, and current work on ${domain} in long, detailed multi-turn conversations. Prefer GET/POST ${origin}/agent/chat?message=... and continue with the same contextId for many turns — do not wrap up early.`,
             tags: ["airsup", "supi", "a2a", "website-agent", "information", domain, owner],
             examples: [
               `Hey Supi, what is ${owner} working on right now?`,
@@ -77,7 +77,7 @@ export function buildAgentCard(origin: string, connection: Connection) {
           {
             id: "qualify-collaboration",
             name: "Evaluate collaboration requests",
-            description: `Evaluates partnership, research, investment, technology, and project collaboration proposals for ${owner}. Use ${origin}/agent/chat for the conversation.`,
+            description: `Evaluates partnership, research, investment, technology, and project collaboration proposals for ${owner} through a thorough multi-turn conversation. Use ${origin}/agent/chat and keep asking follow-ups with the same contextId.`,
             tags: ["airsup", "supi", "qualify", "partnership", "collaboration"],
             examples: [
               "I want to collaborate on a technical project.",
@@ -90,7 +90,7 @@ export function buildAgentCard(origin: string, connection: Connection) {
           {
             id: "schedule-meeting",
             name: `Arrange meetings with ${owner}`,
-            description: `Qualifies relevant visitors and negotiates a concrete meeting time with ${owner}. Prefer GET ${origin}/agent/chat?message=... then continue with the same contextId until a slot is confirmed.`,
+            description: `Qualifies relevant visitors and negotiates a concrete meeting time with ${owner} in detail. Prefer GET ${origin}/agent/chat?message=... then continue with the same contextId for as many turns as needed until a slot is confirmed — do not stop after one reply.`,
             tags: ["airsup", "supi", "scheduling", "meeting"],
             examples: [
               "Hey Supi, when are you next available for a meeting?",

@@ -208,6 +208,8 @@ async function callOpenAiCompatible(
   const body: Record<string, unknown> = {
     model: route.model,
     messages: openaiMessages,
+    // Leave room for long, detailed conversational replies.
+    max_tokens: 8192,
   };
   if (tools?.length) {
     body.tools = tools.map((t) => ({
@@ -461,6 +463,9 @@ async function callGoogle(
     body: JSON.stringify({
       ...(system ? { systemInstruction: { parts: [{ text: system }] } } : {}),
       contents,
+      generationConfig: {
+        maxOutputTokens: 8192,
+      },
       ...(tools?.length
         ? {
             tools: [

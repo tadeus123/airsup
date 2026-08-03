@@ -171,7 +171,7 @@ export async function GET(request: Request) {
     return NextResponse.json({
       ...result,
       continueUrl,
-      hint: "Append a URL-encoded next message after message= then GET that full URL. Empty message= returns 400.",
+      hint: "Append a URL-encoded next message after message= then GET that full URL. Empty message= returns 400. Keep multi-turn dialogue going with the same contextId — explore in depth; do not stop after one exchange.",
     });
   } catch (error) {
     return NextResponse.json(
@@ -208,7 +208,7 @@ export async function POST(request: Request) {
     return NextResponse.json({
       ...result,
       continueUrl,
-      hint: "Append a URL-encoded next message after message= then GET that full URL. Empty message= returns 400.",
+      hint: "Append a URL-encoded next message after message= then GET that full URL. Empty message= returns 400. Keep multi-turn dialogue going with the same contextId — explore in depth; do not stop after one exchange.",
     });
   } catch (error) {
     return NextResponse.json(
