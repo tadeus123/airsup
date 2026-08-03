@@ -36,8 +36,15 @@ export async function GET(request: Request) {
       );
     }
 
-    await exchangeCodeForTokens({ code, requestOrigin: origin });
-    return NextResponse.redirect(`${setupPath}?google=connected`, 302);
+    await exchangeCodeForTokens({
+      code,
+      requestOrigin: origin,
+      service: verified.service,
+    });
+
+    const flash =
+      verified.service === "gmail" ? "gmail=connected" : "calendar=connected";
+    return NextResponse.redirect(`${setupPath}?${flash}`, 302);
   } catch (error) {
     const message = error instanceof Error ? error.message : "oauth_failed";
     return NextResponse.redirect(

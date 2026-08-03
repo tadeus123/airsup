@@ -158,6 +158,22 @@ a {
   background: #f3f4f6;
 }
 
+.setup-actions {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.85rem;
+  width: min(420px, 100%);
+}
+
+.setup-actions .ok {
+  margin: 0;
+}
+
+.setup-actions .setup-copy {
+  width: 100%;
+}
+
 a.setup-copy {
   display: inline-block;
   text-decoration: none;

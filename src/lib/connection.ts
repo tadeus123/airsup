@@ -1,5 +1,8 @@
 import { createHmac, randomUUID, timingSafeEqual } from "node:crypto";
-import { executeGoogleTool, GOOGLE_AGENT_TOOLS } from "./google-tools";
+import {
+  executeGoogleTool,
+  toolsForGoogleConnections,
+} from "./google-tools";
 import { callChatLlm, resolveLlmRoute, type ChatMessage } from "./llm";
 import {
   buildKnowledgePromptBlock,
@@ -27,9 +30,14 @@ export type Connection = {
   ownerTimezone: string;
   connected: boolean;
   updatedAt: string;
+  /** Calendar OAuth (website owner). */
   googleConnected: boolean;
   googleEmail: string;
   googleScopes: string;
+  /** Gmail OAuth (website owner). */
+  gmailConnected: boolean;
+  gmailEmail: string;
+  gmailScopes: string;
 };
 
 export type PublicConnection = {
@@ -42,10 +50,19 @@ export type PublicConnection = {
   googleConnected: boolean;
   googleEmail: string;
   googleScopes: string;
+  calendarConnected: boolean;
+  calendarEmail: string;
+  calendarScopes: string;
+  gmailConnected: boolean;
+  gmailEmail: string;
+  gmailScopes: string;
   storage: "supabase" | "redis" | "env" | "none";
 };
 
-type RedisStored = Connection & { googleTokens?: GoogleTokenSet };
+type RedisStored = Connection & {
+  googleTokens?: GoogleTokenSet;
+  gmailTokens?: GoogleTokenSet;
+};
 
 const empty = (): Connection => ({
   websiteDomain: "",
@@ -57,6 +74,9 @@ const empty = (): Connection => ({
   googleConnected: false,
   googleEmail: "",
   googleScopes: "",
+  gmailConnected: false,
+  gmailEmail: "",
+  gmailScopes: "",
 });
 
 function fromEnv(): Connection | null {
@@ -90,6 +110,9 @@ function fromEnv(): Connection | null {
     googleConnected: false,
     googleEmail: "",
     googleScopes: "",
+    gmailConnected: false,
+    gmailEmail: "",
+    gmailScopes: "",
   };
 }
 
@@ -137,6 +160,12 @@ type StoredRow = {
   googleConnected?: boolean;
   googleEmail?: string;
   googleScopes?: string;
+  gmailConnected?: boolean;
+  gmailEmail?: string;
+  gmailScopes?: string;
+  calendarConnected?: boolean;
+  calendarEmail?: string;
+  calendarScopes?: string;
 };
 
 function normalizeTimezone(value: string | null | undefined): string {
@@ -195,9 +224,12 @@ function fromStored(row: StoredRow | null | undefined): Connection | null {
     ownerTimezone: normalizeTimezone(row.ownerTimezone),
     connected: Boolean(row.connected),
     updatedAt: row.updatedAt ?? new Date().toISOString(),
-    googleConnected: Boolean(row.googleConnected),
-    googleEmail: row.googleEmail ?? "",
-    googleScopes: row.googleScopes ?? "",
+    googleConnected: Boolean(row.googleConnected ?? row.calendarConnected),
+    googleEmail: row.googleEmail ?? row.calendarEmail ?? "",
+    googleScopes: row.googleScopes ?? row.calendarScopes ?? "",
+    gmailConnected: Boolean(row.gmailConnected),
+    gmailEmail: row.gmailEmail ?? "",
+    gmailScopes: row.gmailScopes ?? "",
   };
 }
 
@@ -226,6 +258,7 @@ export async function getConnection(): Promise<{
     const stored = await client.get<RedisStored>("airsup:connection");
     if (stored) {
       const tokens = stored.googleTokens;
+      const gmailTokens = stored.gmailTokens;
       return {
         connection: {
           ...empty(),
@@ -233,6 +266,9 @@ export async function getConnection(): Promise<{
           googleConnected: Boolean(tokens?.connected || stored.googleConnected),
           googleEmail: tokens?.email || stored.googleEmail || "",
           googleScopes: tokens?.scopes || stored.googleScopes || "",
+          gmailConnected: Boolean(gmailTokens?.connected || stored.gmailConnected),
+          gmailEmail: gmailTokens?.email || stored.gmailEmail || "",
+          gmailScopes: gmailTokens?.scopes || stored.gmailScopes || "",
         },
         storage: "redis",
       };
@@ -277,6 +313,9 @@ export async function saveConnection(input: {
     googleConnected: existing.connection.googleConnected,
     googleEmail: existing.connection.googleEmail,
     googleScopes: existing.connection.googleScopes,
+    gmailConnected: existing.connection.gmailConnected,
+    gmailEmail: existing.connection.gmailEmail,
+    gmailScopes: existing.connection.gmailScopes,
   };
 
   if (supabaseConfig()) {
@@ -300,6 +339,7 @@ export async function saveConnection(input: {
     await client.set("airsup:connection", {
       ...connection,
       googleTokens: prev?.googleTokens,
+      gmailTokens: prev?.gmailTokens,
     });
     void refreshSiteKnowledgeInBackground(connection.websiteDomain).catch(() => undefined);
     return { connection, storage: "redis" };
@@ -368,6 +408,64 @@ export async function saveGoogleTokens(
   throw new Error("No storage configured for Google tokens.");
 }
 
+export async function saveGmailTokens(
+  tokens: GoogleTokenSet
+): Promise<{ connection: Connection; storage: PublicConnection["storage"] }> {
+  const existing = await getConnection();
+  if (!existing.connection.connected || !existing.connection.websiteDomain) {
+    throw new Error("Connect your domain and AI API key before linking Gmail.");
+  }
+
+  if (supabaseConfig()) {
+    const row = await supabaseRpc<StoredRow>("airsup_save_gmail_tokens", {
+      p_token: supabaseConfig()!.token,
+      p_refresh_token: tokens.refreshToken,
+      p_access_token: tokens.accessToken,
+      p_token_expiry: tokens.tokenExpiry || null,
+      p_email: tokens.email,
+      p_scopes: tokens.scopes,
+    });
+    return {
+      connection: {
+        ...existing.connection,
+        gmailConnected: Boolean(row?.gmailConnected ?? true),
+        gmailEmail: row?.gmailEmail ?? tokens.email,
+        gmailScopes: row?.gmailScopes ?? tokens.scopes,
+        updatedAt: row?.updatedAt ?? new Date().toISOString(),
+      },
+      storage: "supabase",
+    };
+  }
+
+  const client = await redis();
+  if (client) {
+    const prev = (await client.get<RedisStored>("airsup:connection")) || {
+      ...existing.connection,
+    };
+    const next: RedisStored = {
+      ...prev,
+      gmailConnected: true,
+      gmailEmail: tokens.email,
+      gmailScopes: tokens.scopes,
+      gmailTokens: { ...tokens, connected: true },
+      updatedAt: new Date().toISOString(),
+    };
+    await client.set("airsup:connection", next);
+    return {
+      connection: {
+        ...existing.connection,
+        gmailConnected: true,
+        gmailEmail: tokens.email,
+        gmailScopes: tokens.scopes,
+        updatedAt: next.updatedAt,
+      },
+      storage: "redis",
+    };
+  }
+
+  throw new Error("No storage configured for Gmail tokens.");
+}
+
 export async function getGoogleTokens(): Promise<GoogleTokenSet | null> {
   if (supabaseConfig()) {
     return supabaseRpc<GoogleTokenSet>("airsup_get_google_tokens", {
@@ -379,6 +477,21 @@ export async function getGoogleTokens(): Promise<GoogleTokenSet | null> {
   if (client) {
     const stored = await client.get<RedisStored>("airsup:connection");
     if (stored?.googleTokens?.connected) return stored.googleTokens;
+  }
+  return null;
+}
+
+export async function getGmailTokens(): Promise<GoogleTokenSet | null> {
+  if (supabaseConfig()) {
+    return supabaseRpc<GoogleTokenSet>("airsup_get_gmail_tokens", {
+      p_token: supabaseConfig()!.token,
+    });
+  }
+
+  const client = await redis();
+  if (client) {
+    const stored = await client.get<RedisStored>("airsup:connection");
+    if (stored?.gmailTokens?.connected) return stored.gmailTokens;
   }
   return null;
 }
@@ -441,6 +554,64 @@ export async function clearGoogleTokens(): Promise<{
   };
 }
 
+export async function clearGmailTokens(): Promise<{
+  connection: Connection;
+  storage: PublicConnection["storage"];
+}> {
+  const existing = await getConnection();
+
+  if (supabaseConfig()) {
+    await supabaseRpc("airsup_clear_gmail_tokens", {
+      p_token: supabaseConfig()!.token,
+    });
+    return {
+      connection: {
+        ...existing.connection,
+        gmailConnected: false,
+        gmailEmail: "",
+        gmailScopes: "",
+        updatedAt: new Date().toISOString(),
+      },
+      storage: "supabase",
+    };
+  }
+
+  const client = await redis();
+  if (client) {
+    const prev = await client.get<RedisStored>("airsup:connection");
+    if (prev) {
+      const next: RedisStored = {
+        ...prev,
+        gmailConnected: false,
+        gmailEmail: "",
+        gmailScopes: "",
+        gmailTokens: undefined,
+        updatedAt: new Date().toISOString(),
+      };
+      await client.set("airsup:connection", next);
+    }
+    return {
+      connection: {
+        ...existing.connection,
+        gmailConnected: false,
+        gmailEmail: "",
+        gmailScopes: "",
+      },
+      storage: "redis",
+    };
+  }
+
+  return {
+    connection: {
+      ...existing.connection,
+      gmailConnected: false,
+      gmailEmail: "",
+      gmailScopes: "",
+    },
+    storage: existing.storage,
+  };
+}
+
 export function toPublic(
   connection: Connection,
   storage: PublicConnection["storage"]
@@ -455,6 +626,12 @@ export function toPublic(
     googleConnected: connection.googleConnected,
     googleEmail: connection.googleEmail,
     googleScopes: connection.googleScopes,
+    calendarConnected: connection.googleConnected,
+    calendarEmail: connection.googleEmail,
+    calendarScopes: connection.googleScopes,
+    gmailConnected: connection.gmailConnected,
+    gmailEmail: connection.gmailEmail,
+    gmailScopes: connection.gmailScopes,
     storage,
   };
 }
@@ -628,16 +805,26 @@ async function callConfiguredLlm(
     void persistOwnerTimezone(inferred).catch(() => undefined);
   }
   const clock = nowInTimezone(ownerTimezone);
-  const googleConnected = connection.googleConnected;
-  const googleBlock = googleConnected
-    ? `Google Calendar and Gmail are connected for the website owner (${connection.googleEmail || "linked account"}).
-You have tools to list/create/update/delete calendar events, check free/busy, list Gmail, and send email.
+  const calendarConnected = connection.googleConnected;
+  const gmailConnected = connection.gmailConnected;
+  const calendarBlock = calendarConnected
+    ? `Google Calendar is connected for the website owner (${connection.googleEmail || "linked account"}).
+You have calendar tools to list/create/update/delete events and check free/busy.
 When scheduling: check free/busy or list events first, agree a time with the visitor, then create the event with create_calendar_event.
 Use RFC3339 datetimes with the owner timezone (${clock.timeZone}) when calling tools.
 After creating an event, confirm with the real event details (and htmlLink when available).
 Never invent calendar state — always use tools for live data.`
     : `Google Calendar is not connected yet. You can still negotiate meeting times using availability defaults, but you cannot create real calendar entries.
 If the visitor wants a real booking, tell them the website owner must open /domain/setup and connect Google Calendar.`;
+
+  const gmailBlock = gmailConnected
+    ? `Gmail is connected for the website owner (${connection.gmailEmail || "linked account"}).
+You have Gmail tools to list/read/send/delete messages and create/list/update/send/delete drafts.
+Use tools for live mailbox state — never invent email contents.
+Ask before sending email when the action is consequential.`
+    : `Gmail is not connected yet. If the visitor needs email actions, tell them the website owner must open /domain/setup and connect Gmail.`;
+
+  const googleBlock = `${calendarBlock}\n${gmailBlock}`;
 
   const knowledge = domain
     ? await ensureSiteKnowledge(domain)
@@ -671,7 +858,10 @@ ${knowledgeBlock}`,
     { role: "user", content: message },
   ];
 
-  const tools = googleConnected ? GOOGLE_AGENT_TOOLS : undefined;
+  const tools = toolsForGoogleConnections({
+    calendarConnected,
+    gmailConnected,
+  });
   let result = await callChatLlm(connection.agentSecret, messages, tools);
   let loops = 0;
 

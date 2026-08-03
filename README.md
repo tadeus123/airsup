@@ -44,11 +44,12 @@ pnpm --filter @web-native-agent/airsup dev
 - `/domain/setup` (website-owner Google Calendar / Gmail OAuth)
 - `/supi.svg`
 
-## Google Calendar (website owner)
+## Google Calendar + Gmail (website owner)
 
 1. Create a Google Cloud OAuth client (Web application).
 2. Add authorized redirect URI: `https://<your-airsup-host>/api/google/callback`
-3. Set on Vercel:
+3. Enable **Google Calendar API** and **Gmail API** on the project.
+4. Set on Vercel:
 
 ```bash
 GOOGLE_CLIENT_ID=...
@@ -57,5 +58,6 @@ GOOGLE_CLIENT_SECRET=...
 # GOOGLE_OAUTH_REDIRECT_URI=https://<your-airsup-host>/api/google/callback
 ```
 
-4. Enter an already-connected domain on the home page → `/domain/setup` → **Connect your Google Calendar**.
-5. Tokens are stored for that website owner. Supi then gets Calendar + Gmail tools.
+5. Enter an already-connected domain on the home page → `/domain/setup`.
+6. Click **Connect your Google Calendar** and/or **Connect Gmail** (separate OAuth consents).
+7. Tokens are stored per website owner. Supi gets Calendar tools and/or Gmail tools (read/send/delete/drafts) depending on what is connected.

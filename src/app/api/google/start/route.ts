@@ -1,11 +1,23 @@
 import { NextResponse } from "next/server";
 import { getConnection, toPublic } from "@/lib/connection";
-import { googleAuthUrl, isGoogleOAuthConfigured } from "@/lib/google-oauth";
+import {
+  googleAuthUrl,
+  isGoogleOAuthConfigured,
+  type GoogleOAuthService,
+} from "@/lib/google-oauth";
 
 export const runtime = "nodejs";
 
+function parseService(raw: unknown): GoogleOAuthService {
+  return raw === "gmail" ? "gmail" : "calendar";
+}
+
 export async function POST(request: Request) {
   try {
+    const body = (await request.json().catch(() => ({}))) as {
+      service?: string;
+    };
+    const service = parseService(body.service);
     const { connection, storage } = await getConnection();
     if (!connection.connected || !connection.websiteDomain) {
       return NextResponse.json(
@@ -28,8 +40,9 @@ export async function POST(request: Request) {
     const url = googleAuthUrl({
       requestOrigin: origin,
       websiteDomain: connection.websiteDomain,
+      service,
     });
-    return NextResponse.json({ url });
+    return NextResponse.json({ url, service });
   } catch (error) {
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "oauth_start_failed" },

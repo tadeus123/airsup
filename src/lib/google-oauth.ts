@@ -1,18 +1,34 @@
 import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 import {
   clearGoogleTokens,
+  clearGmailTokens,
   getGoogleTokens,
+  getGmailTokens,
   saveGoogleTokens,
+  saveGmailTokens,
   type GoogleTokenSet,
 } from "./connection";
 
-export const GOOGLE_SCOPES = [
-  "openid",
-  "email",
-  "profile",
+export type GoogleOAuthService = "calendar" | "gmail";
+
+const BASE_SCOPES = ["openid", "email", "profile"];
+
+export const CALENDAR_SCOPES = [
+  ...BASE_SCOPES,
   "https://www.googleapis.com/auth/calendar",
+].join(" ");
+
+export const GMAIL_SCOPES = [
+  ...BASE_SCOPES,
   "https://www.googleapis.com/auth/gmail.modify",
 ].join(" ");
+
+/** @deprecated use CALENDAR_SCOPES / GMAIL_SCOPES */
+export const GOOGLE_SCOPES = CALENDAR_SCOPES;
+
+function scopesFor(service: GoogleOAuthService): string {
+  return service === "gmail" ? GMAIL_SCOPES : CALENDAR_SCOPES;
+}
 
 function oauthConfig() {
   const clientId = (process.env.GOOGLE_CLIENT_ID ?? "").trim();
@@ -24,7 +40,7 @@ function oauthConfig() {
   ).trim();
   if (!clientId || !clientSecret) {
     throw new Error(
-      "Set GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET to connect Google Calendar."
+      "Set GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET to connect Google."
     );
   }
   return { clientId, clientSecret, redirectUri };
@@ -53,17 +69,21 @@ export function buildRedirectUri(requestOrigin: string): string {
   return `${requestOrigin.replace(/\/$/, "")}/api/google/callback`;
 }
 
-export function createOAuthState(websiteDomain: string): string {
+export function createOAuthState(
+  websiteDomain: string,
+  service: GoogleOAuthService
+): string {
   const nonce = randomBytes(16).toString("hex");
   const domain = websiteDomain.trim().toLowerCase();
-  const payload = `${Date.now()}.${nonce}.${domain}`;
+  const payload = `${Date.now()}.${nonce}.${domain}.${service}`;
   const sig = createHmac("sha256", stateSecret()).update(payload).digest("hex");
   return Buffer.from(`${payload}.${sig}`).toString("base64url");
 }
 
-export function verifyOAuthState(state: string, expectedDomain?: string): {
-  websiteDomain: string;
-} {
+export function verifyOAuthState(
+  state: string,
+  expectedDomain?: string
+): { websiteDomain: string; service: GoogleOAuthService } {
   let decoded: string;
   try {
     decoded = Buffer.from(state, "base64url").toString("utf8");
@@ -71,10 +91,33 @@ export function verifyOAuthState(state: string, expectedDomain?: string): {
     throw new Error("Invalid OAuth state");
   }
   const parts = decoded.split(".");
-  if (parts.length !== 4) throw new Error("Invalid OAuth state");
-  const [ts, nonce, domain, sig] = parts;
+  // New format: ts.nonce.domain.service.sig (5)
+  // Legacy format: ts.nonce.domain.sig (4) → calendar
+  if (parts.length !== 4 && parts.length !== 5) {
+    throw new Error("Invalid OAuth state");
+  }
+
+  let ts: string;
+  let nonce: string;
+  let domain: string;
+  let service: GoogleOAuthService = "calendar";
+  let sig: string;
+  let payload: string;
+
+  if (parts.length === 5) {
+    [ts, nonce, domain, , sig] = parts;
+    const rawService = parts[3];
+    if (rawService !== "calendar" && rawService !== "gmail") {
+      throw new Error("Invalid OAuth service");
+    }
+    service = rawService;
+    payload = `${ts}.${nonce}.${domain}.${service}`;
+  } else {
+    [ts, nonce, domain, sig] = parts;
+    payload = `${ts}.${nonce}.${domain}`;
+  }
+
   if (!ts || !nonce || !domain || !sig) throw new Error("Invalid OAuth state");
-  const payload = `${ts}.${nonce}.${domain}`;
   const expected = createHmac("sha256", stateSecret()).update(payload).digest("hex");
   const a = Buffer.from(sig);
   const b = Buffer.from(expected);
@@ -88,21 +131,22 @@ export function verifyOAuthState(state: string, expectedDomain?: string): {
   if (expectedDomain && domain !== expectedDomain.trim().toLowerCase()) {
     throw new Error("OAuth state domain mismatch");
   }
-  return { websiteDomain: domain };
+  return { websiteDomain: domain, service };
 }
 
 export function googleAuthUrl(opts: {
   requestOrigin: string;
   websiteDomain: string;
+  service: GoogleOAuthService;
 }): string {
   const { clientId } = oauthConfig();
   const redirectUri = buildRedirectUri(opts.requestOrigin);
-  const state = createOAuthState(opts.websiteDomain);
+  const state = createOAuthState(opts.websiteDomain, opts.service);
   const params = new URLSearchParams({
     client_id: clientId,
     redirect_uri: redirectUri,
     response_type: "code",
-    scope: GOOGLE_SCOPES,
+    scope: scopesFor(opts.service),
     access_type: "offline",
     prompt: "consent",
     include_granted_scopes: "true",
@@ -124,6 +168,7 @@ type TokenResponse = {
 export async function exchangeCodeForTokens(opts: {
   code: string;
   requestOrigin: string;
+  service: GoogleOAuthService;
 }): Promise<GoogleTokenSet> {
   const { clientId, clientSecret } = oauthConfig();
   const redirectUri = buildRedirectUri(opts.requestOrigin);
@@ -150,10 +195,15 @@ export async function exchangeCodeForTokens(opts: {
     accessToken: json.access_token,
     tokenExpiry: expiry,
     email,
-    scopes: json.scope || GOOGLE_SCOPES,
+    scopes: json.scope || scopesFor(opts.service),
     connected: true,
   };
-  await saveGoogleTokens(tokens);
+
+  if (opts.service === "gmail") {
+    await saveGmailTokens(tokens);
+  } else {
+    await saveGoogleTokens(tokens);
+  }
   return tokens;
 }
 
@@ -175,28 +225,14 @@ async function fetchGoogleEmail(accessToken: string, idToken?: string): Promise<
   return json.email || "";
 }
 
-export async function getValidAccessToken(): Promise<{
+async function refreshAccessToken(
+  stored: GoogleTokenSet,
+  service: GoogleOAuthService
+): Promise<{
   accessToken: string;
   email: string;
   scopes: string;
 } | null> {
-  const stored = await getGoogleTokens();
-  if (!stored?.connected || (!stored.refreshToken && !stored.accessToken)) {
-    return null;
-  }
-
-  const expiryMs = stored.tokenExpiry ? new Date(stored.tokenExpiry).getTime() : 0;
-  const stillValid =
-    stored.accessToken && expiryMs && expiryMs - Date.now() > 60_000;
-
-  if (stillValid) {
-    return {
-      accessToken: stored.accessToken,
-      email: stored.email,
-      scopes: stored.scopes,
-    };
-  }
-
   if (!stored.refreshToken) return null;
 
   const { clientId, clientSecret } = oauthConfig();
@@ -222,7 +258,11 @@ export async function getValidAccessToken(): Promise<{
     scopes: json.scope || stored.scopes,
     connected: true,
   };
-  await saveGoogleTokens(next);
+  if (service === "gmail") {
+    await saveGmailTokens(next);
+  } else {
+    await saveGoogleTokens(next);
+  }
   return {
     accessToken: next.accessToken,
     email: next.email,
@@ -230,6 +270,40 @@ export async function getValidAccessToken(): Promise<{
   };
 }
 
-export async function disconnectGoogle(): Promise<void> {
-  await clearGoogleTokens();
+export async function getValidAccessToken(
+  service: GoogleOAuthService = "calendar"
+): Promise<{
+  accessToken: string;
+  email: string;
+  scopes: string;
+} | null> {
+  const stored =
+    service === "gmail" ? await getGmailTokens() : await getGoogleTokens();
+  if (!stored?.connected || (!stored.refreshToken && !stored.accessToken)) {
+    return null;
+  }
+
+  const expiryMs = stored.tokenExpiry ? new Date(stored.tokenExpiry).getTime() : 0;
+  const stillValid =
+    stored.accessToken && expiryMs && expiryMs - Date.now() > 60_000;
+
+  if (stillValid) {
+    return {
+      accessToken: stored.accessToken,
+      email: stored.email,
+      scopes: stored.scopes,
+    };
+  }
+
+  return refreshAccessToken(stored, service);
+}
+
+export async function disconnectGoogle(
+  service: GoogleOAuthService = "calendar"
+): Promise<void> {
+  if (service === "gmail") {
+    await clearGmailTokens();
+  } else {
+    await clearGoogleTokens();
+  }
 }
