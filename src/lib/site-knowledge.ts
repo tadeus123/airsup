@@ -348,14 +348,8 @@ export async function crawlWebsite(domain: string): Promise<CrawlResult> {
   }
 
   const cfg = supabaseConfig();
-  if (cfg) {
-    await supabaseRpc("airsup_mark_crawl", {
-      p_token: cfg.token,
-      p_website_domain: root,
-      p_crawl_status: "crawling",
-      p_last_error: "",
-    });
-  }
+  // Skip airsup_mark_crawl — PostgREST can 404 it and abort indexing.
+  // airsup_replace_pages alone is enough to persist crawl state.
 
   const started = Date.now();
   let error = "";
@@ -498,14 +492,6 @@ export async function crawlWebsite(domain: string): Promise<CrawlResult> {
     return { meta, pages: compact };
   } catch (e) {
     error = e instanceof Error ? e.message : String(e);
-    if (cfg) {
-      await supabaseRpc("airsup_mark_crawl", {
-        p_token: cfg.token,
-        p_website_domain: root,
-        p_crawl_status: "error",
-        p_last_error: error.slice(0, 500),
-      });
-    }
     throw e;
   }
 }
