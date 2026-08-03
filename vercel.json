@@ -1,4 +1,4 @@
-{
+﻿{
   "rewrites": [
     { "source": "/.well-known/agent-card.json", "destination": "/api/agent-card" },
     { "source": "/.well-known/agent.json", "destination": "/api/agent-card" },
@@ -13,7 +13,7 @@
   "crons": [
     {
       "path": "/api/knowledge/cron",
-      "schedule": "*/2 * * * *"
+      "schedule": "0 4 * * *"
     }
   ]
 }
