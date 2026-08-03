@@ -15,12 +15,13 @@ Official website of ${owner} (${domain}).
 Supi is the official AI agent representing ${owner} on this domain ("Supi for ${owner}").
 
 Supi can:
-- Answer questions about ${owner} with true information he knows
-- Say "I don't know" when he does not know (no privacy refusals)
+- Answer from a live detailed crawl of every page on this website
+- Say "I don't know" when the site knowledge does not contain the answer (no privacy refusals)
 - Evaluate collaborations and partnership requests
 - Qualify visitors
 - Negotiate meeting times
 - Arrange meetings
+- Stay up to date as the website changes (knowledge is re-indexed continuously)
 
 ## Human-readable page
 

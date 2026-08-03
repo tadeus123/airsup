@@ -1,6 +1,11 @@
 import { createHmac, randomUUID, timingSafeEqual } from "node:crypto";
 import { callChatLlm, resolveLlmRoute } from "./llm";
 import {
+  buildKnowledgePromptBlock,
+  ensureSiteKnowledge,
+  refreshSiteKnowledgeInBackground,
+} from "./site-knowledge";
+import {
   inferWebsiteTimezone,
   normalizeIanaTimezone,
 } from "./website-timezone";
@@ -243,6 +248,8 @@ export async function saveConnection(input: {
       p_agent_secret: connection.agentSecret,
       p_owner_timezone: connection.ownerTimezone,
     });
+    // Full-site knowledge is mandatory: start indexing immediately on connect.
+    void refreshSiteKnowledgeInBackground(connection.websiteDomain).catch(() => undefined);
     return {
       connection: fromStored(row) ?? connection,
       storage: "supabase",
@@ -252,6 +259,7 @@ export async function saveConnection(input: {
   const client = await redis();
   if (client) {
     await client.set("airsup:connection", connection);
+    void refreshSiteKnowledgeInBackground(connection.websiteDomain).catch(() => undefined);
     return { connection, storage: "redis" };
   }
 
@@ -450,17 +458,26 @@ async function callConfiguredLlm(
     void persistOwnerTimezone(inferred).catch(() => undefined);
   }
   const clock = nowInTimezone(ownerTimezone);
+
+  // Highest priority: keep a live, detailed index of every page under the domain.
+  const knowledge = domain
+    ? await ensureSiteKnowledge(domain)
+    : { meta: null, pages: [], refreshed: false };
+  const knowledgeBlock = buildKnowledgePromptBlock(domain, knowledge.pages, knowledge.meta);
+
   const system = {
     role: "system" as const,
     content: `You are Supi, the live Airsup site agent for ${domain || "this website"}.
 Current date and time in the website's local timezone (authoritative — always trust this, never guess or use training-data dates): ${clock.dateLine} (${clock.isoDate}, ${clock.weekday}, ${clock.timeZone}).
 This clock is derived from where the website is based (domain / DNS / site locale / hosting), not from a visitor or setup laptop. Treat "${clock.isoDate}" as today in ${clock.timeZone}. Relative words like "today", "tomorrow", "this week", and "next Monday" must be computed from this website clock only.
-Answer any visitor question with true information you actually know about the website owner, this site, projects, work, interests, and collaborations.
-If you do not know the answer, reply exactly: I don't know.
+
+MOST IMPORTANT RULE: Your primary factual memory is the AUTHORITATIVE WEBSITE KNOWLEDGE block below. It is a detailed crawl of the live website and all pages under the domain. Prefer it over training data. Answer from it in detail when relevant. If the knowledge block does not contain the answer, reply exactly: I don't know.
 Never invent facts. Never refuse a question for privacy, policy, or politeness. Do not say you "can't provide" or "can't share" details — if you lack them, say I don't know.
 You may also schedule meetings. Availability defaults (${clock.timeZone}): Monday–Friday 10:00–12:00 and 14:00–17:00.
 Negotiate naturally until a concrete date and time are agreed. Then confirm clearly in one line like: "CONFIRMED: <date> <time> ${clock.tzAbbr}".
-Keep replies short. Do not invent fake registries. You are a real conversational agent, not a FAQ page.`,
+Keep replies short. Do not invent fake registries. You are a real conversational agent grounded in the website.
+
+${knowledgeBlock}`,
   };
 
   const messages = [

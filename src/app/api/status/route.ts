@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { getConnection, llmBackendForKey, publicOrigin } from "@/lib/connection";
 import { customerSiteUrl, shouldHideSupiOnSetupHost } from "@/lib/host";
+import { getKnowledgeMeta } from "@/lib/site-knowledge";
 
 export const runtime = "nodejs";
 
@@ -20,6 +21,10 @@ export async function GET(request: Request) {
     );
   }
 
+  const knowledge = connection.websiteDomain
+    ? await getKnowledgeMeta(connection.websiteDomain).catch(() => null)
+    : null;
+
   return NextResponse.json({
     product: "Airsup",
     agent: "Supi",
@@ -37,6 +42,15 @@ export async function GET(request: Request) {
         : llmBackendForKey(connection.agentSecret)
       : "builtin",
     storage,
+    knowledge: knowledge
+      ? {
+          pageCount: knowledge.pageCount,
+          totalChars: knowledge.totalChars,
+          crawlStatus: knowledge.crawlStatus,
+          lastCrawlFinishedAt: knowledge.lastCrawlFinishedAt,
+          lastChangeAt: knowledge.lastChangeAt,
+        }
+      : null,
     chatUrl: `${origin}/agent/chat`,
     setupUrl: "/",
     updatedAt: connection.updatedAt || new Date().toISOString(),

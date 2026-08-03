@@ -9,5 +9,11 @@
     { "source": "/a2a/v1", "destination": "/a2a/v1" },
     { "source": "/a2a/v1/:path*", "destination": "/a2a/v1" },
     { "source": "/setup", "destination": "/" }
+  ],
+  "crons": [
+    {
+      "path": "/api/knowledge/cron",
+      "schedule": "*/2 * * * *"
+    }
   ]
 }
