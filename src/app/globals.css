@@ -120,18 +120,6 @@ a {
   font-size: 1rem;
 }
 
-.setup-h2 {
-  margin: 2.25rem 0 0.85rem;
-  font-size: clamp(1.35rem, 3.5vw, 1.75rem);
-  font-weight: 700;
-  letter-spacing: -0.03em;
-  line-height: 1.2;
-}
-
-.setup-h2 + .setup-sub {
-  margin-top: 0;
-}
-
 .setup-prompt {
   width: min(640px, 100%);
   min-height: 16rem;
@@ -148,10 +136,6 @@ a {
   text-align: left;
 }
 
-.setup-prompt-sm {
-  min-height: 11rem;
-}
-
 .setup-copy {
   border: 0;
   border-radius: 0.85rem;
@@ -162,23 +146,6 @@ a {
   cursor: pointer;
   background: var(--accent);
   color: var(--ink);
-}
-
-.setup-copy:disabled {
-  opacity: 0.65;
-  cursor: wait;
-}
-
-.setup-copy-muted {
-  margin-top: 1rem;
-  background: #f3f4f6;
-}
-
-.setup-copy-secondary {
-  background: transparent;
-  color: var(--ink);
-  box-shadow: inset 0 0 0 1.5px var(--line);
-  margin-top: 0.65rem;
 }
 
 .admin {
