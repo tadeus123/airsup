@@ -11,9 +11,26 @@ export type LlmRoute = {
 };
 
 /**
+ * Newest / strongest-understanding defaults per provider.
+ * Env overrides (LLM_MODEL, OPENAI_MODEL, ANTHROPIC_MODEL, GOOGLE_MODEL) still win.
+ */
+export const FLAGSHIP_MODELS = {
+  openai: "gpt-5.6",
+  anthropic: "claude-fable-5",
+  google: "gemini-3.1-pro-preview",
+  groq: "openai/gpt-oss-120b",
+  openrouter: "openai/gpt-5.6",
+  xai: "grok-4.5",
+  nvidia: "meta/llama-3.3-70b-instruct",
+  deepseek: "deepseek-reasoner",
+  compatible: "gpt-5.6",
+} as const;
+
+/**
  * Route an API key to the right chat API without any UI provider picker.
  * Known key prefixes map to native endpoints; anything else uses OpenAI-compatible
  * Chat Completions (override with LLM_BASE_URL / LLM_MODEL).
+ * Defaults always prefer each provider's newest best-understanding model.
  */
 export function resolveLlmRoute(apiKey: string): LlmRoute {
   const key = apiKey.trim();
@@ -25,11 +42,14 @@ export function resolveLlmRoute(apiKey: string): LlmRoute {
   ).trim();
 
   if (envBase) {
+    const deepseek = /deepseek/i.test(envBase);
     return {
-      provider: "compatible",
+      provider: deepseek ? "deepseek" : "compatible",
       style: "openai",
       baseUrl: envBase,
-      model: envModel || "gpt-4o-mini",
+      model:
+        envModel ||
+        (deepseek ? FLAGSHIP_MODELS.deepseek : FLAGSHIP_MODELS.compatible),
     };
   }
 
@@ -38,7 +58,10 @@ export function resolveLlmRoute(apiKey: string): LlmRoute {
       provider: "anthropic",
       style: "anthropic",
       baseUrl: "https://api.anthropic.com",
-      model: envModel || process.env.ANTHROPIC_MODEL?.trim() || "claude-3-5-haiku-latest",
+      model:
+        envModel ||
+        process.env.ANTHROPIC_MODEL?.trim() ||
+        FLAGSHIP_MODELS.anthropic,
     };
   }
 
@@ -47,7 +70,8 @@ export function resolveLlmRoute(apiKey: string): LlmRoute {
       provider: "google",
       style: "google",
       baseUrl: "https://generativelanguage.googleapis.com/v1beta",
-      model: envModel || process.env.GOOGLE_MODEL?.trim() || "gemini-2.0-flash",
+      model:
+        envModel || process.env.GOOGLE_MODEL?.trim() || FLAGSHIP_MODELS.google,
     };
   }
 
@@ -56,7 +80,7 @@ export function resolveLlmRoute(apiKey: string): LlmRoute {
       provider: "groq",
       style: "openai",
       baseUrl: "https://api.groq.com/openai/v1",
-      model: envModel || "llama-3.3-70b-versatile",
+      model: envModel || FLAGSHIP_MODELS.groq,
     };
   }
 
@@ -65,7 +89,7 @@ export function resolveLlmRoute(apiKey: string): LlmRoute {
       provider: "openrouter",
       style: "openai",
       baseUrl: "https://openrouter.ai/api/v1",
-      model: envModel || "openai/gpt-4o-mini",
+      model: envModel || FLAGSHIP_MODELS.openrouter,
     };
   }
 
@@ -74,7 +98,7 @@ export function resolveLlmRoute(apiKey: string): LlmRoute {
       provider: "xai",
       style: "openai",
       baseUrl: "https://api.x.ai/v1",
-      model: envModel || "grok-2-latest",
+      model: envModel || FLAGSHIP_MODELS.xai,
     };
   }
 
@@ -83,7 +107,7 @@ export function resolveLlmRoute(apiKey: string): LlmRoute {
       provider: "nvidia",
       style: "openai",
       baseUrl: "https://integrate.api.nvidia.com/v1",
-      model: envModel || "meta/llama-3.1-70b-instruct",
+      model: envModel || FLAGSHIP_MODELS.nvidia,
     };
   }
 
@@ -93,7 +117,7 @@ export function resolveLlmRoute(apiKey: string): LlmRoute {
     provider: "openai",
     style: "openai",
     baseUrl: "https://api.openai.com/v1",
-    model: envModel || "gpt-4o-mini",
+    model: envModel || FLAGSHIP_MODELS.openai,
   };
 }
 
@@ -180,7 +204,8 @@ async function callAnthropic(
     },
     body: JSON.stringify({
       model: route.model,
-      max_tokens: 1024,
+      // Flagship Claude models use adaptive thinking; keep headroom for a real reply.
+      max_tokens: 8192,
       ...(system ? { system } : {}),
       messages: chat,
     }),
