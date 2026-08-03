@@ -5,7 +5,7 @@ import {
   saveConnection,
   toPublic,
 } from "@/lib/connection";
-import { websiteCursorPrompt } from "@/lib/prompts";
+import { chatgptPrompt, websiteCursorPrompt } from "@/lib/prompts";
 
 export const runtime = "nodejs";
 
@@ -37,9 +37,11 @@ export async function POST(request: Request) {
       agentSecret: secret,
     });
     const origin = new URL(request.url).origin;
+    const domain = saved.connection.websiteDomain;
     return NextResponse.json({
       ...toPublic(saved.connection, saved.storage),
-      prompt: websiteCursorPrompt(saved.connection.websiteDomain, origin),
+      prompt: websiteCursorPrompt(domain, origin),
+      chatgptPrompt: chatgptPrompt(domain),
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : "error";

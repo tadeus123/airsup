@@ -121,6 +121,7 @@ export function websiteCursorPrompt(domain: string, connectorOrigin: string): st
   const d = domain || "YOUR-DOMAIN.com";
   const owner = domain ? humanizeDomainLabel(domain) : d;
   return `You are installing invisible Airsup / Supi discovery on this website (${d}).
+Run this in Cursor, Codex, Claude Code, or any coding agent opened on the website project.
 
 ════════════════════════════════════════════════════════════════
 #0 PRIORITY — DO NOT BREAK ANYTHING ALREADY ON THIS WEBSITE
