@@ -118,6 +118,61 @@ function missingMessageResponse(opts: {
   );
 }
 
+function isRetryableTransportError(error: unknown): boolean {
+  if (!(error instanceof Error)) return false;
+  if (error.name === "AbortError") return true;
+  return /timed out|timeout|aborted|ECONNRESET|ETIMEDOUT|fetch failed|socket|429|502|503|504/i.test(
+    error.message
+  );
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/**
+ * Hide raw AbortSignal / transport failures from ChatGPT and other callers.
+ * Retry once quickly, then return a structured retryable error.
+ */
+async function callAgentWithRetry(
+  connection: Awaited<ReturnType<typeof getConnection>>["connection"],
+  input: { message: string; taskId?: string; contextId?: string }
+) {
+  let lastError: unknown;
+  for (let attempt = 1; attempt <= 2; attempt += 1) {
+    try {
+      return await callRealAgent(connection, input.message, {
+        taskId: input.taskId,
+        contextId: input.contextId,
+      });
+    } catch (error) {
+      lastError = error;
+      if (!isRetryableTransportError(error) || attempt >= 2) break;
+      await sleep(300 * attempt);
+    }
+  }
+  throw lastError;
+}
+
+function temporarilyUnreachableResponse(error: unknown): NextResponse {
+  const raw = error instanceof Error ? error.message : "agent_failed";
+  const transport =
+    (error instanceof Error && error.name === "AbortError") ||
+    /timed out|timeout|aborted|signal/i.test(raw);
+
+  return NextResponse.json(
+    {
+      status: "agent_temporarily_unreachable",
+      stage: "conversation",
+      retryable: true,
+      error: transport
+        ? "Conversation timed out before Supi finished answering. Please retry the same request."
+        : raw,
+    },
+    { status: 503 }
+  );
+}
+
 async function handleChat(
   _request: Request,
   input: { message: string; taskId?: string; contextId?: string }
@@ -127,11 +182,11 @@ async function handleChat(
     return null;
   }
   const { connection } = await getConnection();
-  const result = await callRealAgent(connection, message, {
+  return callAgentWithRetry(connection, {
+    message,
     taskId: input.taskId,
     contextId: input.contextId,
   });
-  return result;
 }
 
 export async function GET(request: Request) {
@@ -174,10 +229,7 @@ export async function GET(request: Request) {
       hint: "Append a URL-encoded next message after message= then GET that full URL. Empty message= returns 400. Keep multi-turn dialogue going with the same contextId — explore in depth; do not stop after one exchange.",
     });
   } catch (error) {
-    return NextResponse.json(
-      { error: error instanceof Error ? error.message : "agent_failed" },
-      { status: 502 }
-    );
+    return temporarilyUnreachableResponse(error);
   }
 }
 
@@ -211,10 +263,7 @@ export async function POST(request: Request) {
       hint: "Append a URL-encoded next message after message= then GET that full URL. Empty message= returns 400. Keep multi-turn dialogue going with the same contextId — explore in depth; do not stop after one exchange.",
     });
   } catch (error) {
-    return NextResponse.json(
-      { error: error instanceof Error ? error.message : "agent_failed" },
-      { status: 502 }
-    );
+    return temporarilyUnreachableResponse(error);
   }
 }
 

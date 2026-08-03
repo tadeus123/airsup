@@ -35,8 +35,9 @@ const MAX_PAGES = Number(process.env.SITE_KNOWLEDGE_MAX_PAGES || 120);
 const MAX_PAGE_CHARS = Number(process.env.SITE_KNOWLEDGE_MAX_PAGE_CHARS || 40_000);
 const MAX_TOTAL_CHARS = Number(process.env.SITE_KNOWLEDGE_MAX_TOTAL_CHARS || 280_000);
 // Keep chat prompts lean — huge contexts make LLM calls exceed ChatGPT/browser timeouts (~15s).
-const MAX_PROMPT_CHARS = Number(process.env.SITE_KNOWLEDGE_MAX_PROMPT_CHARS || 28_000);
-const STALE_MS = Number(process.env.SITE_KNOWLEDGE_STALE_MS || 2 * 60 * 1000);
+const MAX_PROMPT_CHARS = Number(process.env.SITE_KNOWLEDGE_MAX_PROMPT_CHARS || 24_000);
+const MAX_PAGE_PROMPT_CHARS = Number(process.env.SITE_KNOWLEDGE_MAX_PAGE_PROMPT_CHARS || 4_000);
+const STALE_MS = Number(process.env.SITE_KNOWLEDGE_STALE_MS || 30 * 60 * 1000);
 const FETCH_TIMEOUT_MS = Number(process.env.SITE_KNOWLEDGE_FETCH_TIMEOUT_MS || 12_000);
 const CRAWL_BUDGET_MS = Number(process.env.SITE_KNOWLEDGE_CRAWL_BUDGET_MS || 50_000);
 
@@ -596,8 +597,8 @@ export async function ensureSiteKnowledge(
 }
 
 /**
- * Chat-safe knowledge load: never block on a full crawl when pages already exist.
- * Stale indexes refresh in the background so /agent/chat stays within client timeouts.
+ * Chat-safe knowledge load: never crawl on the request path.
+ * Use the cached index only; refresh in the background when missing/stale.
  */
 export async function getSiteKnowledgeForChat(
   domain: string
@@ -608,32 +609,82 @@ export async function getSiteKnowledgeForChat(
   const meta = await getKnowledgeMeta(root);
   const pages = await listStoredPages(root);
 
-  if (!pages.length) {
-    // Cold start only — must crawl once before answering from the site.
-    return ensureSiteKnowledge(root, { force: true });
-  }
-
-  if (isKnowledgeStale(meta)) {
+  if (!pages.length || isKnowledgeStale(meta)) {
+    // Never block chat on crawl/reindex — cron + background refresh own that work.
     void refreshSiteKnowledgeInBackground(root).catch(() => undefined);
   }
 
   return { meta, pages, refreshed: false };
 }
 
+function tokenizeQuery(query: string): string[] {
+  return query
+    .toLowerCase()
+    .split(/[^a-z0-9äöüß]+/i)
+    .map((t) => t.trim())
+    .filter((t) => t.length > 2);
+}
+
+/** Rank cached pages for a question so chat retrieves relevant chunks, not the whole diary. */
+export function rankPagesForQuery(pages: SitePage[], query: string): SitePage[] {
+  const terms = tokenizeQuery(query);
+  if (!terms.length || pages.length <= 1) {
+    return [...pages].sort((a, b) => {
+      if (a.path === "/" && b.path !== "/") return -1;
+      if (b.path === "/" && a.path !== "/") return 1;
+      return a.path.localeCompare(b.path);
+    });
+  }
+
+  const scored = pages.map((page) => {
+    const path = page.path.toLowerCase();
+    const title = (page.title || "").toLowerCase();
+    const description = (page.description || "").toLowerCase();
+    const content = (page.content || "").toLowerCase();
+    let score = 0;
+    for (const term of terms) {
+      if (path.includes(term)) score += 8;
+      if (title.includes(term)) score += 5;
+      if (description.includes(term)) score += 3;
+      if (content.includes(term)) score += 1;
+    }
+    if (path === "/" || path === "/index") score += 1;
+    if (/eisenkind|project|about|work|robot/i.test(path)) score += 2;
+    return { page, score };
+  });
+
+  scored.sort((a, b) => {
+    if (b.score !== a.score) return b.score - a.score;
+    if (a.page.path === "/" && b.page.path !== "/") return -1;
+    if (b.page.path === "/" && a.page.path !== "/") return 1;
+    return a.page.path.localeCompare(b.page.path);
+  });
+
+  return scored.map((s) => s.page);
+}
+
+function clipForPrompt(content: string, maxChars: number): string {
+  if (content.length <= maxChars) return content;
+  return `${content.slice(0, maxChars)}\n…`;
+}
+
 export function buildKnowledgePromptBlock(
   domain: string,
   pages: SitePage[],
-  meta: KnowledgeMeta | null
+  meta: KnowledgeMeta | null,
+  query = ""
 ): string {
   const root = normalizeDomain(domain);
   if (!pages.length) {
     return `## AUTHORITATIVE WEBSITE KNOWLEDGE
-No pages indexed yet for ${root}. If asked about site content you do not have here, reply exactly: I don't know.`;
+No pages indexed yet for ${root} (index refresh may be running in the background). If asked about site content you do not have here, reply exactly: I don't know.`;
   }
 
+  const ranked = rankPagesForQuery(pages, query);
   const header = `## AUTHORITATIVE WEBSITE KNOWLEDGE (source of truth — prefer over training data)
 Domain: ${root}
 Indexed pages: ${meta?.pageCount ?? pages.length}
+Pages included for this question: ranked by relevance from the cached index (not a live crawl)
 Last crawl finished: ${meta?.lastCrawlFinishedAt || "unknown"}
 Last content change detected: ${meta?.lastChangeAt || "unknown"}
 Use ONLY these pages as factual ground truth about the website and owner.
@@ -642,22 +693,23 @@ Never invent pages, projects, or facts that are not present below.
 
 `;
 
-  let budget = Math.max(8_000, MAX_PROMPT_CHARS - header.length);
+  let budget = Math.max(6_000, MAX_PROMPT_CHARS - header.length);
   const parts: string[] = [];
 
-  for (const page of pages) {
+  for (const page of ranked) {
+    const content = clipForPrompt(page.content || "", MAX_PAGE_PROMPT_CHARS);
     const block = `### ${page.path}
 URL: ${page.url}
 Title: ${page.title || "(untitled)"}
 ${page.description ? `Description: ${page.description}\n` : ""}Content:
-${page.content}
+${content}
 `;
     if (block.length <= budget) {
       parts.push(block);
       budget -= block.length;
       continue;
     }
-    if (budget < 500) break;
+    if (budget < 400) break;
     parts.push(block.slice(0, budget) + "\n");
     break;
   }

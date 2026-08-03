@@ -170,6 +170,67 @@ function parseToolArgs(raw: string): Record<string, unknown> {
 
 /** Cap reply length so /agent/chat finishes before browser/ChatGPT clients abort (~15s). */
 const CHAT_MAX_OUTPUT_TOKENS = Number(process.env.LLM_MAX_OUTPUT_TOKENS || 1536);
+/** Per-attempt LLM budget — keep under typical ChatGPT/browser abort windows. */
+const LLM_TIMEOUT_MS = Number(process.env.LLM_TIMEOUT_MS || 14_000);
+const LLM_MAX_ATTEMPTS = Math.max(1, Number(process.env.LLM_MAX_ATTEMPTS || 2));
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function isAbortError(error: unknown): boolean {
+  if (!error || typeof error !== "object") return false;
+  const name = "name" in error ? String((error as { name: unknown }).name) : "";
+  const message = "message" in error ? String((error as { message: unknown }).message) : "";
+  return name === "AbortError" || /aborted|abort|timed out|timeout/i.test(message);
+}
+
+async function fetchLlmWithRetry(
+  url: string,
+  init: RequestInit,
+  opts: { timeoutMs?: number; attempts?: number } = {}
+): Promise<Response> {
+  const timeoutMs = opts.timeoutMs ?? LLM_TIMEOUT_MS;
+  const attempts = opts.attempts ?? LLM_MAX_ATTEMPTS;
+  let lastError: unknown;
+
+  for (let attempt = 1; attempt <= attempts; attempt += 1) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    try {
+      const response = await fetch(url, { ...init, signal: controller.signal });
+      if (
+        attempt < attempts &&
+        (response.status === 408 ||
+          response.status === 425 ||
+          response.status === 429 ||
+          response.status >= 500)
+      ) {
+        lastError = new Error(`LLM HTTP ${response.status}`);
+        await sleep(Math.min(300 * attempt, 900));
+        continue;
+      }
+      return response;
+    } catch (error) {
+      lastError = error;
+      if (attempt < attempts) {
+        await sleep(Math.min(300 * attempt, 900));
+        continue;
+      }
+      if (isAbortError(error)) {
+        throw new Error("LLM request timed out");
+      }
+      throw error instanceof Error ? error : new Error("LLM request failed");
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
+  if (isAbortError(lastError)) {
+    throw new Error("LLM request timed out");
+  }
+  throw lastError instanceof Error ? lastError : new Error("LLM request failed");
+}
 
 /**
  * OpenAI chat models (gpt-4.1+, gpt-5+, o-series) reject `max_tokens` and require
@@ -241,7 +302,7 @@ async function callOpenAiCompatible(
     body.tool_choice = "auto";
   }
 
-  const response = await fetch(url, {
+  const response = await fetchLlmWithRetry(url, {
     method: "POST",
     headers,
     body: JSON.stringify(body),
@@ -342,29 +403,32 @@ async function callAnthropic(
     }
   }
 
-  const response = await fetch(`${route.baseUrl.replace(/\/$/, "")}/v1/messages`, {
-    method: "POST",
-    headers: {
-      "content-type": "application/json",
-      "x-api-key": apiKey,
-      "anthropic-version": "2023-06-01",
-    },
-    body: JSON.stringify({
-      model: route.model,
-      max_tokens: CHAT_MAX_OUTPUT_TOKENS,
-      ...(system ? { system } : {}),
-      messages: chat,
-      ...(tools?.length
-        ? {
-            tools: tools.map((t) => ({
-              name: t.name,
-              description: t.description,
-              input_schema: t.parameters,
-            })),
-          }
-        : {}),
-    }),
-  });
+  const response = await fetchLlmWithRetry(
+    `${route.baseUrl.replace(/\/$/, "")}/v1/messages`,
+    {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-api-key": apiKey,
+        "anthropic-version": "2023-06-01",
+      },
+      body: JSON.stringify({
+        model: route.model,
+        max_tokens: CHAT_MAX_OUTPUT_TOKENS,
+        ...(system ? { system } : {}),
+        messages: chat,
+        ...(tools?.length
+          ? {
+              tools: tools.map((t) => ({
+                name: t.name,
+                description: t.description,
+                input_schema: t.parameters,
+              })),
+            }
+          : {}),
+      }),
+    }
+  );
 
   const json = (await response.json().catch(() => ({}))) as {
     error?: { message?: string };
@@ -475,7 +539,7 @@ async function callGoogle(
     `${route.baseUrl.replace(/\/$/, "")}/models/${encodeURIComponent(route.model)}:generateContent` +
     `?key=${encodeURIComponent(apiKey)}`;
 
-  const response = await fetch(url, {
+  const response = await fetchLlmWithRetry(url, {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({

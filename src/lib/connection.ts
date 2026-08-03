@@ -775,36 +775,67 @@ export async function callRealAgent(
     const timestamp = String(Date.now());
     const nonce = randomUUID();
     const signature = sign(connection.agentSecret, timestamp, nonce, rawBody);
+    const webhookTimeoutMs = Number(process.env.AGENT_WEBHOOK_TIMEOUT_MS || 12_000);
 
-    const response = await fetch(connection.agentWebhookUrl, {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-        "x-agent-timestamp": timestamp,
-        "x-agent-nonce": nonce,
-        "x-agent-signature": signature,
-      },
-      body: rawBody,
-    });
+    let lastError: Error | null = null;
+    for (let attempt = 1; attempt <= 2; attempt += 1) {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), webhookTimeoutMs);
+      try {
+        const response = await fetch(connection.agentWebhookUrl, {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+            "x-agent-timestamp": timestamp,
+            "x-agent-nonce": nonce,
+            "x-agent-signature": signature,
+          },
+          body: rawBody,
+          signal: controller.signal,
+        });
 
-    const json = (await response.json().catch(() => ({}))) as {
-      message?: string;
-      kind?: string;
-      taskId?: string;
-      contextId?: string;
-    };
+        const json = (await response.json().catch(() => ({}))) as {
+          message?: string;
+          kind?: string;
+          taskId?: string;
+          contextId?: string;
+        };
 
-    if (!response.ok) {
-      throw new Error(json.message || `Agent webhook HTTP ${response.status}`);
+        if (!response.ok) {
+          const err = new Error(json.message || `Agent webhook HTTP ${response.status}`);
+          if ((response.status === 429 || response.status >= 500) && attempt < 2) {
+            lastError = err;
+            await new Promise((r) => setTimeout(r, 250 * attempt));
+            continue;
+          }
+          throw err;
+        }
+
+        return {
+          reply: json.message || "Agent responded with no message.",
+          kind: json.kind || "completed",
+          taskId: json.taskId || taskId,
+          contextId: json.contextId || contextId,
+          backend: "webhook",
+        };
+      } catch (error) {
+        const err =
+          error instanceof Error
+            ? error.name === "AbortError"
+              ? new Error("Agent webhook timed out")
+              : error
+            : new Error("Agent webhook failed");
+        lastError = err;
+        if (attempt < 2) {
+          await new Promise((r) => setTimeout(r, 250 * attempt));
+          continue;
+        }
+        throw err;
+      } finally {
+        clearTimeout(timer);
+      }
     }
-
-    return {
-      reply: json.message || "Agent responded with no message.",
-      kind: json.kind || "completed",
-      taskId: json.taskId || taskId,
-      contextId: json.contextId || contextId,
-      backend: "webhook",
-    };
+    throw lastError || new Error("Agent webhook failed");
   }
 
   const reply = await callConfiguredLlm(connection, message, contextId);
@@ -918,7 +949,12 @@ ${goals}
 When a playbook says to screen, book, email, or decline: do that. Use Calendar/Gmail tools when the playbook requires real scheduling or email. Do not invent invite links.`
     : `No owner goals/playbooks are saved yet. For custom workflows (e.g. podcast screening), the website owner can add them on /domain/setup.`;
 
-  const knowledgeBlock = buildKnowledgePromptBlock(domain, knowledge.pages, knowledge.meta);
+  const knowledgeBlock = buildKnowledgePromptBlock(
+    domain,
+    knowledge.pages,
+    knowledge.meta,
+    message
+  );
 
   const system: ChatMessage = {
     role: "system",
