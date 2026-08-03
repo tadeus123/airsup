@@ -75,9 +75,10 @@ export function createOAuthState(
 ): string {
   const nonce = randomBytes(16).toString("hex");
   const domain = websiteDomain.trim().toLowerCase();
-  const payload = `${Date.now()}.${nonce}.${domain}.${service}`;
+  // Use `|` so domains with dots (example.com) do not break parsing.
+  const payload = `${Date.now()}|${nonce}|${domain}|${service}`;
   const sig = createHmac("sha256", stateSecret()).update(payload).digest("hex");
-  return Buffer.from(`${payload}.${sig}`).toString("base64url");
+  return Buffer.from(`${payload}|${sig}`).toString("base64url");
 }
 
 export function verifyOAuthState(
@@ -90,12 +91,6 @@ export function verifyOAuthState(
   } catch {
     throw new Error("Invalid OAuth state");
   }
-  const parts = decoded.split(".");
-  // New format: ts.nonce.domain.service.sig (5)
-  // Legacy format: ts.nonce.domain.sig (4) → calendar
-  if (parts.length !== 4 && parts.length !== 5) {
-    throw new Error("Invalid OAuth state");
-  }
 
   let ts: string;
   let nonce: string;
@@ -104,17 +99,32 @@ export function verifyOAuthState(
   let sig: string;
   let payload: string;
 
-  if (parts.length === 5) {
+  if (decoded.includes("|")) {
+    const parts = decoded.split("|");
+    if (parts.length !== 5) throw new Error("Invalid OAuth state");
     [ts, nonce, domain, , sig] = parts;
     const rawService = parts[3];
     if (rawService !== "calendar" && rawService !== "gmail") {
       throw new Error("Invalid OAuth service");
     }
     service = rawService;
-    payload = `${ts}.${nonce}.${domain}.${service}`;
+    payload = `${ts}|${nonce}|${domain}|${service}`;
   } else {
-    [ts, nonce, domain, sig] = parts;
-    payload = `${ts}.${nonce}.${domain}`;
+    // Legacy `.` format — parse from the ends so dotted domains still work.
+    const parts = decoded.split(".");
+    if (parts.length < 4) throw new Error("Invalid OAuth state");
+    ts = parts[0]!;
+    nonce = parts[1]!;
+    sig = parts[parts.length - 1]!;
+    const maybeService = parts[parts.length - 2]!;
+    if (maybeService === "calendar" || maybeService === "gmail") {
+      service = maybeService;
+      domain = parts.slice(2, -2).join(".");
+      payload = `${ts}.${nonce}.${domain}.${service}`;
+    } else {
+      domain = parts.slice(2, -1).join(".");
+      payload = `${ts}.${nonce}.${domain}`;
+    }
   }
 
   if (!ts || !nonce || !domain || !sig) throw new Error("Invalid OAuth state");
