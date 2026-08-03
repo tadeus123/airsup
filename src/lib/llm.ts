@@ -31,19 +31,20 @@ export type LlmChatResult = {
 };
 
 /**
- * Newest / strongest-understanding defaults per provider.
- * Env overrides (LLM_MODEL, OPENAI_MODEL, ANTHROPIC_MODEL, GOOGLE_MODEL) still win.
+ * Fast, strong defaults for website chat.
+ * Prefer models that finish within browser/ChatGPT fetch budgets (~15s).
+ * Env overrides (LLM_MODEL, OPENAI_MODEL, …) still win.
  */
 export const FLAGSHIP_MODELS = {
-  openai: "gpt-5.6",
-  anthropic: "claude-fable-5",
-  google: "gemini-3.1-pro-preview",
+  openai: "gpt-4.1",
+  anthropic: "claude-sonnet-4-5",
+  google: "gemini-2.5-flash",
   groq: "openai/gpt-oss-120b",
-  openrouter: "openai/gpt-5.6",
-  xai: "grok-4.5",
+  openrouter: "openai/gpt-4.1",
+  xai: "grok-4",
   nvidia: "meta/llama-3.3-70b-instruct",
-  deepseek: "deepseek-reasoner",
-  compatible: "gpt-5.6",
+  deepseek: "deepseek-chat",
+  compatible: "gpt-4.1",
 } as const;
 
 /**
@@ -167,6 +168,9 @@ function parseToolArgs(raw: string): Record<string, unknown> {
   }
 }
 
+/** Cap reply length so /agent/chat finishes before browser/ChatGPT clients abort (~15s). */
+const CHAT_MAX_OUTPUT_TOKENS = Number(process.env.LLM_MAX_OUTPUT_TOKENS || 1536);
+
 /**
  * OpenAI chat models (gpt-4.1+, gpt-5+, o-series) reject `max_tokens` and require
  * `max_completion_tokens`. Other OpenAI-compatible providers still use `max_tokens`.
@@ -177,8 +181,8 @@ function openaiCompletionLimit(route: LlmRoute): Record<string, number> {
     route.provider === "openai" ||
     /(^|\/)(gpt-5|gpt-4\.1|o[1-9]|chatgpt)/.test(model);
   return needsCompletionTokens
-    ? { max_completion_tokens: 8192 }
-    : { max_tokens: 8192 };
+    ? { max_completion_tokens: CHAT_MAX_OUTPUT_TOKENS }
+    : { max_tokens: CHAT_MAX_OUTPUT_TOKENS };
 }
 
 async function callOpenAiCompatible(
@@ -347,7 +351,7 @@ async function callAnthropic(
     },
     body: JSON.stringify({
       model: route.model,
-      max_tokens: 8192,
+      max_tokens: CHAT_MAX_OUTPUT_TOKENS,
       ...(system ? { system } : {}),
       messages: chat,
       ...(tools?.length
@@ -478,7 +482,7 @@ async function callGoogle(
       ...(system ? { systemInstruction: { parts: [{ text: system }] } } : {}),
       contents,
       generationConfig: {
-        maxOutputTokens: 8192,
+        maxOutputTokens: CHAT_MAX_OUTPUT_TOKENS,
       },
       ...(tools?.length
         ? {

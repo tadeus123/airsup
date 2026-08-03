@@ -32,7 +32,7 @@ export function buildAgentCard(origin: string, connection: Connection) {
   return {
     name: connected ? `Supi for ${owner}` : "Supi",
     description: connected
-      ? `The official AI agent representing ${owner} on ${domain}. Supi holds long, detailed multi-turn conversations about ${owner} using live website knowledge, says "I don't know" when he does not know, evaluates collaborations, qualifies requests, and schedules meetings. Callers should keep chatting with the same contextId — do not wrap up after one reply.`
+      ? `The official AI agent representing ${owner} on ${domain}. Supi answers questions about ${owner} from live website knowledge, says "I don't know" when unsure, evaluates collaborations, and schedules meetings. Prefer short multi-turn chats via ${origin}/agent/chat with the same contextId.`
       : "Supi is the Airsup site agent. Configure your domain + agent secret on the setup page.",
     supportedInterfaces: [
       {

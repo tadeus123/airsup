@@ -34,7 +34,8 @@ export type CrawlResult = {
 const MAX_PAGES = Number(process.env.SITE_KNOWLEDGE_MAX_PAGES || 120);
 const MAX_PAGE_CHARS = Number(process.env.SITE_KNOWLEDGE_MAX_PAGE_CHARS || 40_000);
 const MAX_TOTAL_CHARS = Number(process.env.SITE_KNOWLEDGE_MAX_TOTAL_CHARS || 280_000);
-const MAX_PROMPT_CHARS = Number(process.env.SITE_KNOWLEDGE_MAX_PROMPT_CHARS || 220_000);
+// Keep chat prompts lean — huge contexts make LLM calls exceed ChatGPT/browser timeouts (~15s).
+const MAX_PROMPT_CHARS = Number(process.env.SITE_KNOWLEDGE_MAX_PROMPT_CHARS || 28_000);
 const STALE_MS = Number(process.env.SITE_KNOWLEDGE_STALE_MS || 2 * 60 * 1000);
 const FETCH_TIMEOUT_MS = Number(process.env.SITE_KNOWLEDGE_FETCH_TIMEOUT_MS || 12_000);
 const CRAWL_BUDGET_MS = Number(process.env.SITE_KNOWLEDGE_CRAWL_BUDGET_MS || 50_000);

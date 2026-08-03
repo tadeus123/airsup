@@ -866,18 +866,28 @@ async function callConfiguredLlm(
   message: string,
   contextId: string
 ): Promise<{ text: string; provider: string }> {
-  const history =
-    (await supabaseRpc<Array<{ role: string; content: string }>>("airsup_list_messages", {
+  const domain = connection.websiteDomain;
+
+  // Prefer the saved timezone on the hot path. Inference (DNS/homepage) only when missing.
+  let ownerTimezone = resolveOwnerTimezone(connection);
+  if (domain && !connection.ownerTimezone) {
+    const inferred = await resolveWebsiteTimezone(domain);
+    if (inferred) {
+      ownerTimezone = inferred;
+      void persistOwnerTimezone(inferred).catch(() => undefined);
+    }
+  }
+
+  const [history, knowledge] = await Promise.all([
+    supabaseRpc<Array<{ role: string; content: string }>>("airsup_list_messages", {
       p_token: supabaseConfig()?.token,
       p_context_id: contextId,
-    })) || [];
+    }).then((rows) => rows || []),
+    domain
+      ? getSiteKnowledgeForChat(domain)
+      : Promise.resolve({ meta: null, pages: [], refreshed: false }),
+  ]);
 
-  const domain = connection.websiteDomain;
-  const inferred = domain ? await resolveWebsiteTimezone(domain) : "";
-  const ownerTimezone = inferred || resolveOwnerTimezone(connection);
-  if (domain && inferred && inferred !== connection.ownerTimezone) {
-    void persistOwnerTimezone(inferred).catch(() => undefined);
-  }
   const clock = nowInTimezone(ownerTimezone);
   const calendarConnected = connection.googleConnected;
   const gmailConnected = connection.gmailConnected;
@@ -908,9 +918,6 @@ ${goals}
 When a playbook says to screen, book, email, or decline: do that. Use Calendar/Gmail tools when the playbook requires real scheduling or email. Do not invent invite links.`
     : `No owner goals/playbooks are saved yet. For custom workflows (e.g. podcast screening), the website owner can add them on /domain/setup.`;
 
-  const knowledge = domain
-    ? await getSiteKnowledgeForChat(domain)
-    : { meta: null, pages: [], refreshed: false };
   const knowledgeBlock = buildKnowledgePromptBlock(domain, knowledge.pages, knowledge.meta);
 
   const system: ChatMessage = {
@@ -919,7 +926,7 @@ When a playbook says to screen, book, email, or decline: do that. Use Calendar/G
 Current date and time in the website's local timezone (authoritative — always trust this, never guess or use training-data dates): ${clock.dateLine} (${clock.isoDate}, ${clock.weekday}, ${clock.timeZone}).
 This clock is derived from where the website is based (domain / DNS / site locale / hosting), not from a visitor or setup laptop. Treat "${clock.isoDate}" as today in ${clock.timeZone}. Relative words like "today", "tomorrow", "this week", and "next Monday" must be computed from this website clock only.
 
-MOST IMPORTANT RULE: Your primary factual memory is the AUTHORITATIVE WEBSITE KNOWLEDGE block below. It is a detailed crawl of the live website and all pages under the domain. Prefer it over training data. Answer from it in detail when relevant. If the knowledge block does not contain the answer, reply exactly: I don't know.
+MOST IMPORTANT RULE: Your primary factual memory is the AUTHORITATIVE WEBSITE KNOWLEDGE block below. It is a detailed crawl of the live website and all pages under the domain. Prefer it over training data. Answer from it when relevant. If the knowledge block does not contain the answer, reply exactly: I don't know.
 Never invent facts. Never refuse a question for privacy, policy, or politeness. Do not say you "can't provide" or "can't share" details — if you lack them, say I don't know.
 You may also schedule meetings. Availability defaults (${clock.timeZone}): Monday–Friday 10:00–12:00 and 14:00–17:00.
 Negotiate naturally until a concrete date and time are agreed.
@@ -928,11 +935,11 @@ ${googleBlock}
 ${goalsBlock}
 
 CONVERSATION STYLE (critical):
-- Have a long, rich conversation. Give detailed, concrete answers with examples, context, and follow-up questions.
-- Do not wrap up early. Do not end with a curt closing unless the visitor clearly wants to stop.
-- Prefer multi-turn dialogue: answer thoroughly, then invite the next thread (ask a useful follow-up).
-- When scheduling or screening, stay engaged — explain options, compare times, and keep negotiating until something real is agreed.
-- Only use the exact reply "I don't know" when the website knowledge truly lacks the fact; otherwise expand with what you do know from the knowledge block.
+- Be concrete and useful. Lead with the answer, then 3–8 short supporting points from the knowledge block.
+- Keep each reply under ~250 words so remote AI clients do not time out waiting for you.
+- Do not write essays. Prefer multi-turn dialogue: answer now, then ask one focused follow-up so the caller continues with the same contextId.
+- When scheduling or screening, stay engaged — propose options clearly and keep negotiating until something real is agreed.
+- Only use the exact reply "I don't know" when the website knowledge truly lacks the fact; otherwise share what you do know from the knowledge block.
 Do not invent fake registries. You are a real conversational agent grounded in the website.
 
 ${knowledgeBlock}`,
@@ -983,18 +990,21 @@ ${knowledgeBlock}`,
   const text = result.text?.trim() || "Done.";
 
   if (supabaseConfig()) {
-    await supabaseRpc("airsup_append_message", {
-      p_token: supabaseConfig()!.token,
-      p_context_id: contextId,
-      p_role: "user",
-      p_content: message,
-    });
-    await supabaseRpc("airsup_append_message", {
-      p_token: supabaseConfig()!.token,
-      p_context_id: contextId,
-      p_role: "assistant",
-      p_content: text,
-    });
+    const token = supabaseConfig()!.token;
+    await Promise.all([
+      supabaseRpc("airsup_append_message", {
+        p_token: token,
+        p_context_id: contextId,
+        p_role: "user",
+        p_content: message,
+      }),
+      supabaseRpc("airsup_append_message", {
+        p_token: token,
+        p_context_id: contextId,
+        p_role: "assistant",
+        p_content: text,
+      }),
+    ]);
   }
 
   return { text, provider: result.provider };
