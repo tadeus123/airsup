@@ -205,6 +205,45 @@ a {
   margin-top: 0;
 }
 
+.setup-trace-list {
+  list-style: none;
+  margin: 1rem 0 0;
+  padding: 0;
+  text-align: left;
+  width: min(640px, 100%);
+}
+
+.setup-trace {
+  display: flex;
+  gap: 0.65rem;
+  align-items: flex-start;
+  margin: 0 0 0.55rem;
+  font-size: 0.92rem;
+  line-height: 1.35;
+}
+
+.setup-trace-flag {
+  flex: 0 0 auto;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  font-size: 0.75rem;
+  margin-top: 0.15rem;
+}
+
+.setup-trace.ok .setup-trace-flag {
+  color: #166534;
+}
+
+.setup-trace.miss .setup-trace-flag {
+  color: #b91c1c;
+}
+
+.setup-trace-body {
+  color: #374151;
+  word-break: break-word;
+}
+
 a.setup-copy {
   display: inline-block;
   text-decoration: none;
@@ -290,6 +329,37 @@ a.setup-copy {
   color: var(--muted);
   font-size: 0.8rem;
   margin-bottom: 0.2rem;
+}
+
+.admin-tools {
+  margin: 0 0 1.75rem;
+}
+
+.admin-tools h2 {
+  margin: 0 0 0.35rem;
+  font-size: 1.15rem;
+}
+
+.admin-trace-list {
+  list-style: none;
+  margin: 0.75rem 0 0;
+  padding: 0;
+}
+
+.admin-trace-list li {
+  display: flex;
+  gap: 0.65rem;
+  margin: 0 0 0.45rem;
+  font-size: 0.9rem;
+  line-height: 1.35;
+}
+
+.admin-trace-list li.ok strong {
+  color: #166534;
+}
+
+.admin-trace-list li.miss strong {
+  color: #b91c1c;
 }
 
 .admin-list {

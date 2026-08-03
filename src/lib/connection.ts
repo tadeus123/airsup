@@ -10,6 +10,14 @@ import {
   refreshSiteKnowledgeInBackground,
 } from "./site-knowledge";
 import {
+  detectToolIntent,
+  evaluateToolUse,
+  logToolTraceSafe,
+  toolResultOk,
+  type ToolCallTrace,
+  type ToolTraceRecord,
+} from "./tool-trace";
+import {
   inferWebsiteTimezone,
   normalizeIanaTimezone,
 } from "./website-timezone";
@@ -845,6 +853,15 @@ export async function callRealAgent(
     taskId,
     contextId,
     backend: reply.provider,
+    toolTrace: {
+      toolsCalled: reply.toolTrace.toolsCalled.map((t) => t.name),
+      toolErrors: reply.toolTrace.toolsCalled.filter((t) => !t.ok).map((t) => t.name),
+      loops: reply.toolTrace.loops,
+      intentCalendar: reply.toolTrace.intentCalendar,
+      intentGmail: reply.toolTrace.intentGmail,
+      usedOk: reply.toolTrace.usedOk,
+      missReason: reply.toolTrace.missReason || undefined,
+    },
   };
 }
 
@@ -999,6 +1016,10 @@ ${knowledgeBlock}`,
     calendarConnected,
     gmailConnected,
   });
+  const toolsOffered = tools.map((t) => t.name);
+  const toolsCalled: ToolCallTrace[] = [];
+  const { intentCalendar, intentGmail } = detectToolIntent(message);
+
   let result = await callChatLlm(connection.agentSecret, messages, tools);
   let loops = 0;
 
@@ -1016,6 +1037,7 @@ ${knowledgeBlock}`,
 
     for (const call of result.toolCalls) {
       const toolResult = await executeGoogleTool(call.name, call.arguments || {});
+      toolsCalled.push({ name: call.name, ok: toolResultOk(toolResult) });
       messages.push({
         role: "tool",
         toolCallId: call.id,
@@ -1027,6 +1049,29 @@ ${knowledgeBlock}`,
   }
 
   const text = result.text?.trim() || "Done.";
+  const { usedOk, missReason } = evaluateToolUse({
+    toolsOffered,
+    toolsCalled,
+    calendarConnected,
+    gmailConnected,
+    intentCalendar,
+    intentGmail,
+  });
+
+  const toolTrace: ToolTraceRecord = {
+    contextId,
+    provider: result.provider,
+    toolsOffered,
+    toolsCalled,
+    loops,
+    calendarConnected,
+    gmailConnected,
+    intentCalendar,
+    intentGmail,
+    usedOk,
+    missReason,
+  };
+  logToolTraceSafe(toolTrace);
 
   if (supabaseConfig()) {
     const token = supabaseConfig()!.token;
@@ -1043,10 +1088,24 @@ ${knowledgeBlock}`,
         p_role: "assistant",
         p_content: text,
       }),
+      supabaseRpc("airsup_append_tool_trace", {
+        p_token: token,
+        p_context_id: contextId,
+        p_provider: result.provider,
+        p_tools_offered: toolsOffered,
+        p_tools_called: toolsCalled,
+        p_loops: loops,
+        p_calendar_connected: calendarConnected,
+        p_gmail_connected: gmailConnected,
+        p_intent_calendar: intentCalendar,
+        p_intent_gmail: intentGmail,
+        p_used_ok: usedOk,
+        p_miss_reason: missReason,
+      }).catch(() => undefined),
     ]);
   }
 
-  return { text, provider: result.provider };
+  return { text, provider: result.provider, toolTrace };
 }
 
 export function assertSetupPassword(headerPassword: string | null): void {
@@ -1149,4 +1208,14 @@ export async function listAdminConversations(): Promise<{
     storage,
     conversations,
   };
+}
+
+export async function listToolTraces(limit = 40): Promise<ToolTraceRecord[]> {
+  const cfg = supabaseConfig();
+  if (!cfg) return [];
+  const rows = await supabaseRpc<ToolTraceRecord[]>("airsup_list_tool_traces", {
+    p_token: cfg.token,
+    p_limit: limit,
+  });
+  return rows || [];
 }

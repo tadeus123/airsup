@@ -18,6 +18,18 @@ type Status = {
   error?: string;
 };
 
+type ToolTrace = {
+  id?: string;
+  createdAt?: string;
+  contextId: string;
+  toolsCalled: Array<{ name: string; ok: boolean }>;
+  loops: number;
+  intentCalendar: boolean;
+  intentGmail: boolean;
+  usedOk: boolean;
+  missReason: string;
+};
+
 export default function DomainSetupClient() {
   const search = useSearchParams();
   const [status, setStatus] = useState<Status | null>(null);
@@ -25,6 +37,7 @@ export default function DomainSetupClient() {
   const [goals, setGoals] = useState("");
   const [goalsSaved, setGoalsSaved] = useState(false);
   const [example, setExample] = useState("");
+  const [traces, setTraces] = useState<ToolTrace[]>([]);
   const [error, setError] = useState("");
 
   const calendarFlash =
@@ -45,6 +58,13 @@ export default function DomainSetupClient() {
     };
   }
 
+  async function loadTraces() {
+    const res = await fetch("/api/tools/traces?limit=20", { cache: "no-store" });
+    const json = (await res.json()) as { traces?: ToolTrace[]; error?: string };
+    if (!res.ok) throw new Error(json.error || "Failed to load tool traces");
+    setTraces(json.traces || []);
+  }
+
   async function loadStatus() {
     const [googleRes, goalsRes] = await Promise.all([
       fetch("/api/google/status"),
@@ -58,6 +78,7 @@ export default function DomainSetupClient() {
     setStatus(merged);
     setGoals(merged.ownerGoals || "");
     setExample(goalsJson.example || "");
+    void loadTraces().catch(() => undefined);
   }
 
   useEffect(() => {
@@ -208,6 +229,55 @@ export default function DomainSetupClient() {
                 </>
               )}
             </div>
+          </section>
+
+          <section className="setup-section">
+            <h2>Tool use</h2>
+            <p className="setup-sub">
+              Whether Supi called Calendar/Gmail tools when a turn looked like scheduling or email.
+              Names only — no message bodies.
+            </p>
+            <div className="setup-actions setup-actions-row">
+              <button
+                type="button"
+                className="setup-copy setup-copy-muted"
+                onClick={() => void loadTraces().catch((e) => setError(e instanceof Error ? e.message : String(e)))}
+                disabled={busy !== null}
+              >
+                Refresh traces
+              </button>
+            </div>
+            {traces.length === 0 ? (
+              <p className="setup-sub">No tool traces yet. Ask Supi about availability, then refresh.</p>
+            ) : (
+              <ul className="setup-trace-list">
+                {traces.slice(0, 12).map((t) => {
+                  const called =
+                    t.toolsCalled?.map((c) => (c.ok ? c.name : `${c.name}!`)).join(", ") ||
+                    "(none)";
+                  const when = t.createdAt
+                    ? new Date(t.createdAt).toLocaleString()
+                    : "";
+                  return (
+                    <li
+                      key={t.id || `${t.contextId}-${t.createdAt}`}
+                      className={t.usedOk ? "setup-trace ok" : "setup-trace miss"}
+                    >
+                      <span className="setup-trace-flag">
+                        {t.usedOk ? "ok" : "miss"}
+                      </span>
+                      <span className="setup-trace-body">
+                        {t.intentCalendar ? "calendar intent · " : ""}
+                        {t.intentGmail ? "gmail intent · " : ""}
+                        {called}
+                        {t.missReason ? ` · ${t.missReason}` : ""}
+                        {when ? ` · ${when}` : ""}
+                      </span>
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
           </section>
 
           <section className="setup-section">

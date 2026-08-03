@@ -28,6 +28,19 @@ type AdminPayload = {
   error?: string;
 };
 
+type ToolTrace = {
+  id?: string;
+  createdAt?: string;
+  contextId: string;
+  toolsCalled: Array<{ name: string; ok: boolean }>;
+  loops: number;
+  intentCalendar: boolean;
+  intentGmail: boolean;
+  usedOk: boolean;
+  missReason: string;
+  provider?: string;
+};
+
 function fmt(iso: string) {
   if (!iso) return "";
   try {
@@ -41,6 +54,7 @@ export default function AdminPage() {
   const [password, setPassword] = useState("");
   const [savedPassword, setSavedPassword] = useState("");
   const [data, setData] = useState<AdminPayload | null>(null);
+  const [traces, setTraces] = useState<ToolTrace[]>([]);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
 
@@ -49,17 +63,27 @@ export default function AdminPage() {
     setBusy(true);
     setError("");
     try {
-      const res = await fetch("/api/admin/conversations", {
-        headers: { "x-admin-password": pwd },
-        cache: "no-store",
-      });
-      const json = (await res.json()) as AdminPayload;
-      if (!res.ok) throw new Error(json.error || "Failed to load");
+      const [convRes, toolsRes] = await Promise.all([
+        fetch("/api/admin/conversations", {
+          headers: { "x-admin-password": pwd },
+          cache: "no-store",
+        }),
+        fetch("/api/admin/tools", {
+          headers: { "x-admin-password": pwd },
+          cache: "no-store",
+        }),
+      ]);
+      const json = (await convRes.json()) as AdminPayload;
+      const toolsJson = (await toolsRes.json()) as { traces?: ToolTrace[]; error?: string };
+      if (!convRes.ok) throw new Error(json.error || "Failed to load");
+      if (!toolsRes.ok) throw new Error(toolsJson.error || "Failed to load tool traces");
       setData(json);
+      setTraces(toolsJson.traces || []);
       setSavedPassword(pwd);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
       setData(null);
+      setTraces([]);
     } finally {
       setBusy(false);
     }
@@ -78,7 +102,7 @@ export default function AdminPage() {
       <header className="admin-header">
         <div>
           <h1>Airsup admin</h1>
-          <p>Live conversations for debugging</p>
+          <p>Live conversations + tool-use traces</p>
         </div>
         {savedPassword ? (
           <button type="button" disabled={busy} onClick={() => void load(savedPassword)}>
@@ -133,6 +157,35 @@ export default function AdminPage() {
               <span>Threads</span>
               <strong>{data.conversations.length}</strong>
             </div>
+          </section>
+
+          <section className="admin-tools">
+            <h2>Tool traces</h2>
+            <p className="admin-hint">
+              Flags when calendar/gmail intent fired without the matching tool. No message bodies.
+            </p>
+            {traces.length === 0 ? (
+              <p className="admin-empty">No tool traces yet.</p>
+            ) : (
+              <ul className="admin-trace-list">
+                {traces.map((t) => {
+                  const called =
+                    t.toolsCalled?.map((c) => (c.ok ? c.name : `${c.name}!`)).join(", ") ||
+                    "(none)";
+                  return (
+                    <li key={t.id || `${t.contextId}-${t.createdAt}`} className={t.usedOk ? "ok" : "miss"}>
+                      <strong>{t.usedOk ? "ok" : "miss"}</strong>
+                      <span>
+                        {fmt(t.createdAt || "")} · {t.contextId.slice(0, 8)}…
+                        {t.intentCalendar ? " · cal intent" : ""}
+                        {t.intentGmail ? " · mail intent" : ""} · {called}
+                        {t.missReason ? ` · ${t.missReason}` : ""}
+                      </span>
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
           </section>
 
           {data.conversations.length === 0 ? (
