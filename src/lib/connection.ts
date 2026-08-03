@@ -1,5 +1,9 @@
 import { createHmac, randomUUID, timingSafeEqual } from "node:crypto";
 import { callChatLlm, resolveLlmRoute } from "./llm";
+import {
+  inferWebsiteTimezone,
+  normalizeIanaTimezone,
+} from "./website-timezone";
 
 export type Connection = {
   websiteDomain: string;
@@ -104,14 +108,7 @@ type StoredRow = {
 };
 
 function normalizeTimezone(value: string | null | undefined): string {
-  const tz = (value ?? "").trim();
-  if (!tz) return "";
-  try {
-    new Intl.DateTimeFormat("en-US", { timeZone: tz }).format(new Date());
-    return tz;
-  } catch {
-    return "";
-  }
+  return normalizeIanaTimezone(value);
 }
 
 function resolveOwnerTimezone(connection: Connection): string {
@@ -121,6 +118,40 @@ function resolveOwnerTimezone(connection: Connection): string {
     normalizeTimezone(process.env.WEBSITE_TIMEZONE) ||
     "UTC"
   );
+}
+
+async function resolveWebsiteTimezone(domain: string): Promise<string> {
+  return (
+    normalizeTimezone(process.env.OWNER_TIMEZONE) ||
+    normalizeTimezone(process.env.WEBSITE_TIMEZONE) ||
+    (await inferWebsiteTimezone(domain)) ||
+    ""
+  );
+}
+
+async function persistOwnerTimezone(ownerTimezone: string): Promise<void> {
+  const tz = normalizeTimezone(ownerTimezone);
+  if (!tz) return;
+  const { connection } = await getConnection();
+  if (!connection.websiteDomain || connection.ownerTimezone === tz) return;
+
+  if (supabaseConfig()) {
+    await supabaseRpc("airsup_save_connection", {
+      p_token: supabaseConfig()!.token,
+      p_website_domain: connection.websiteDomain,
+      p_agent_webhook_url: connection.agentWebhookUrl,
+      p_agent_secret: connection.agentSecret,
+      p_owner_timezone: tz,
+    });
+    return;
+  }
+
+  const client = await redis();
+  if (client) {
+    const prev = await client.get<Connection>("airsup:connection");
+    if (!prev) return;
+    await client.set("airsup:connection", { ...prev, ownerTimezone: tz });
+  }
 }
 
 function fromStored(row: StoredRow | null | undefined): Connection | null {
@@ -175,7 +206,6 @@ export async function saveConnection(input: {
   websiteDomain: string;
   agentWebhookUrl?: string;
   agentSecret: string;
-  ownerTimezone?: string;
 }): Promise<{ connection: Connection; storage: PublicConnection["storage"] }> {
   const websiteDomain = input.websiteDomain
     .trim()
@@ -190,14 +220,11 @@ export async function saveConnection(input: {
     ""
   ).trim();
   const agentSecret = input.agentSecret.trim();
-  const ownerTimezone =
-    normalizeTimezone(input.ownerTimezone) ||
-    existing.connection.ownerTimezone ||
-    normalizeTimezone(process.env.OWNER_TIMEZONE) ||
-    normalizeTimezone(process.env.WEBSITE_TIMEZONE) ||
-    "";
   if (!websiteDomain) throw new Error("Website domain is required");
   if (!agentSecret) throw new Error("API key is required");
+
+  // Derive from the website itself (TLD / DNS / site locale / hosting) — never the setup browser.
+  const ownerTimezone = await resolveWebsiteTimezone(websiteDomain);
 
   const connection: Connection = {
     websiteDomain,
@@ -417,12 +444,17 @@ async function callConfiguredLlm(
     })) || [];
 
   const domain = connection.websiteDomain;
-  const clock = nowInTimezone(resolveOwnerTimezone(connection));
+  const inferred = domain ? await resolveWebsiteTimezone(domain) : "";
+  const ownerTimezone = inferred || resolveOwnerTimezone(connection);
+  if (domain && inferred && inferred !== connection.ownerTimezone) {
+    void persistOwnerTimezone(inferred).catch(() => undefined);
+  }
+  const clock = nowInTimezone(ownerTimezone);
   const system = {
     role: "system" as const,
     content: `You are Supi, the live Airsup site agent for ${domain || "this website"}.
-Current date and time for the website owner (authoritative — always trust this, never guess or use training-data dates): ${clock.dateLine} (${clock.isoDate}, ${clock.weekday}, ${clock.timeZone}).
-This is the website owner's clock. Treat "${clock.isoDate}" as today in ${clock.timeZone}. Relative words like "today", "tomorrow", "this week", and "next Monday" must be computed from this owner clock only.
+Current date and time in the website's local timezone (authoritative — always trust this, never guess or use training-data dates): ${clock.dateLine} (${clock.isoDate}, ${clock.weekday}, ${clock.timeZone}).
+This clock is derived from where the website is based (domain / DNS / site locale / hosting), not from a visitor or setup laptop. Treat "${clock.isoDate}" as today in ${clock.timeZone}. Relative words like "today", "tomorrow", "this week", and "next Monday" must be computed from this website clock only.
 Answer any visitor question with true information you actually know about the website owner, this site, projects, work, interests, and collaborations.
 If you do not know the answer, reply exactly: I don't know.
 Never invent facts. Never refuse a question for privacy, policy, or politeness. Do not say you "can't provide" or "can't share" details — if you lack them, say I don't know.

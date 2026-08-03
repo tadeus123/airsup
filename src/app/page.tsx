@@ -23,7 +23,6 @@ export default function SetupPage() {
         body: JSON.stringify({
           websiteDomain,
           agentSecret,
-          ownerTimezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
         }),
       });
       const json = (await res.json()) as { error?: string; prompt?: string };
