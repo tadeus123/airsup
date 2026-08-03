@@ -466,32 +466,63 @@ export async function crawlWebsite(domain: string): Promise<CrawlResult> {
       total += clipped.content.length;
     }
 
-    const meta =
-      (cfg &&
-        (await supabaseRpc<KnowledgeMeta>("airsup_replace_pages", {
+    let meta: KnowledgeMeta = {
+      websiteDomain: root,
+      pageCount: compact.length,
+      totalChars: total,
+      crawlStatus: "ready",
+      lastCrawlStartedAt: new Date(started).toISOString(),
+      lastCrawlFinishedAt: new Date().toISOString(),
+      lastChangeAt: new Date().toISOString(),
+      sitemapFingerprint: fingerprint,
+      lastError: "",
+      updatedAt: new Date().toISOString(),
+    };
+
+    if (cfg) {
+      await supabaseRpc("airsup_clear_pages", {
+        p_token: cfg.token,
+        p_website_domain: root,
+      });
+      for (const page of compact) {
+        await supabaseRpc("airsup_upsert_page", {
           p_token: cfg.token,
           p_website_domain: root,
-          p_pages: compact,
-          p_sitemap_fingerprint: fingerprint,
-          p_crawl_status: "ready",
-          p_last_error: "",
-        }))) ||
-      ({
-        websiteDomain: root,
-        pageCount: compact.length,
-        totalChars: total,
-        crawlStatus: "ready",
-        lastCrawlStartedAt: new Date(started).toISOString(),
-        lastCrawlFinishedAt: new Date().toISOString(),
-        lastChangeAt: new Date().toISOString(),
-        sitemapFingerprint: fingerprint,
-        lastError: "",
-        updatedAt: new Date().toISOString(),
-      } satisfies KnowledgeMeta);
+          p_url: page.url,
+          p_path: page.path,
+          p_title: page.title,
+          p_description: page.description,
+          p_content: page.content,
+          p_content_hash: page.contentHash,
+          p_etag: page.etag,
+          p_last_modified: page.lastModified,
+          p_status_code: page.statusCode,
+        });
+      }
+      const finished = await supabaseRpc<KnowledgeMeta>("airsup_finish_crawl", {
+        p_token: cfg.token,
+        p_website_domain: root,
+        p_sitemap_fingerprint: fingerprint,
+        p_last_error: "",
+      });
+      if (finished) meta = finished;
+    }
 
     return { meta, pages: compact };
   } catch (e) {
     error = e instanceof Error ? e.message : String(e);
+    if (cfg) {
+      try {
+        await supabaseRpc("airsup_finish_crawl", {
+          p_token: cfg.token,
+          p_website_domain: root,
+          p_sitemap_fingerprint: "",
+          p_last_error: error.slice(0, 500),
+        });
+      } catch {
+        // ignore persistence failure while surfacing crawl error
+      }
+    }
     throw e;
   }
 }
