@@ -1,6 +1,14 @@
+import type { AgentToolDefinition } from "./google-tools";
+
 export type ChatMessage = {
-  role: "system" | "user" | "assistant";
+  role: "system" | "user" | "assistant" | "tool";
   content: string;
+  toolCallId?: string;
+  toolCalls?: Array<{
+    id: string;
+    name: string;
+    arguments: string;
+  }>;
 };
 
 export type LlmRoute = {
@@ -8,6 +16,18 @@ export type LlmRoute = {
   style: "openai" | "anthropic" | "google";
   baseUrl: string;
   model: string;
+};
+
+export type LlmToolCall = {
+  id: string;
+  name: string;
+  arguments: Record<string, unknown>;
+};
+
+export type LlmChatResult = {
+  text: string;
+  provider: string;
+  toolCalls?: LlmToolCall[];
 };
 
 /**
@@ -111,8 +131,6 @@ export function resolveLlmRoute(apiKey: string): LlmRoute {
     };
   }
 
-  // OpenAI and most OpenAI-compatible keys (DeepSeek, Together, Fireworks, …).
-  // Set LLM_BASE_URL when the key is not for api.openai.com.
   return {
     provider: "openai",
     style: "openai",
@@ -123,28 +141,38 @@ export function resolveLlmRoute(apiKey: string): LlmRoute {
 
 export async function callChatLlm(
   apiKey: string,
-  messages: ChatMessage[]
-): Promise<{ text: string; provider: string }> {
+  messages: ChatMessage[],
+  tools?: AgentToolDefinition[]
+): Promise<LlmChatResult> {
   const route = resolveLlmRoute(apiKey);
 
   if (route.style === "anthropic") {
-    const text = await callAnthropic(apiKey, route, messages);
-    return { text, provider: route.provider };
+    return callAnthropic(apiKey, route, messages, tools);
   }
   if (route.style === "google") {
-    const text = await callGoogle(apiKey, route, messages);
-    return { text, provider: route.provider };
+    return callGoogle(apiKey, route, messages, tools);
   }
 
-  const text = await callOpenAiCompatible(apiKey, route, messages);
-  return { text, provider: route.provider };
+  return callOpenAiCompatible(apiKey, route, messages, tools);
+}
+
+function parseToolArgs(raw: string): Record<string, unknown> {
+  try {
+    const parsed = JSON.parse(raw || "{}") as unknown;
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed)
+      ? (parsed as Record<string, unknown>)
+      : {};
+  } catch {
+    return {};
+  }
 }
 
 async function callOpenAiCompatible(
   apiKey: string,
   route: LlmRoute,
-  messages: ChatMessage[]
-): Promise<string> {
+  messages: ChatMessage[],
+  tools?: AgentToolDefinition[]
+): Promise<LlmChatResult> {
   const url = `${route.baseUrl.replace(/\/$/, "")}/chat/completions`;
   const headers: Record<string, string> = {
     "content-type": "application/json",
@@ -155,18 +183,61 @@ async function callOpenAiCompatible(
     headers["x-title"] = process.env.OPENROUTER_APP_TITLE || "Airsup";
   }
 
+  const openaiMessages = messages.map((m) => {
+    if (m.role === "tool") {
+      return {
+        role: "tool" as const,
+        tool_call_id: m.toolCallId || "",
+        content: m.content,
+      };
+    }
+    if (m.role === "assistant" && m.toolCalls?.length) {
+      return {
+        role: "assistant" as const,
+        content: m.content || null,
+        tool_calls: m.toolCalls.map((t) => ({
+          id: t.id,
+          type: "function" as const,
+          function: { name: t.name, arguments: t.arguments },
+        })),
+      };
+    }
+    return { role: m.role, content: m.content };
+  });
+
+  const body: Record<string, unknown> = {
+    model: route.model,
+    messages: openaiMessages,
+  };
+  if (tools?.length) {
+    body.tools = tools.map((t) => ({
+      type: "function",
+      function: {
+        name: t.name,
+        description: t.description,
+        parameters: t.parameters,
+      },
+    }));
+    body.tool_choice = "auto";
+  }
+
   const response = await fetch(url, {
     method: "POST",
     headers,
-    body: JSON.stringify({
-      model: route.model,
-      messages,
-    }),
+    body: JSON.stringify(body),
   });
 
   const json = (await response.json().catch(() => ({}))) as {
     error?: { message?: string } | string;
-    choices?: Array<{ message?: { content?: string } }>;
+    choices?: Array<{
+      message?: {
+        content?: string | null;
+        tool_calls?: Array<{
+          id?: string;
+          function?: { name?: string; arguments?: string };
+        }>;
+      };
+    }>;
   };
 
   if (!response.ok) {
@@ -177,23 +248,79 @@ async function callOpenAiCompatible(
     throw new Error(err);
   }
 
-  const text = json.choices?.[0]?.message?.content?.trim();
+  const message = json.choices?.[0]?.message;
+  const toolCalls = (message?.tool_calls || [])
+    .filter((t) => t.id && t.function?.name)
+    .map((t) => ({
+      id: t.id!,
+      name: t.function!.name!,
+      arguments: parseToolArgs(t.function?.arguments || "{}"),
+    }));
+
+  if (toolCalls.length) {
+    return {
+      text: (message?.content || "").trim(),
+      provider: route.provider,
+      toolCalls,
+    };
+  }
+
+  const text = message?.content?.trim();
   if (!text) throw new Error(`${route.provider} returned an empty reply`);
-  return text;
+  return { text, provider: route.provider };
 }
 
 async function callAnthropic(
   apiKey: string,
   route: LlmRoute,
-  messages: ChatMessage[]
-): Promise<string> {
+  messages: ChatMessage[],
+  tools?: AgentToolDefinition[]
+): Promise<LlmChatResult> {
   const system = messages
     .filter((m) => m.role === "system")
     .map((m) => m.content)
     .join("\n\n");
-  const chat = messages
-    .filter((m) => m.role === "user" || m.role === "assistant")
-    .map((m) => ({ role: m.role, content: m.content }));
+
+  type AnthropicBlock =
+    | { type: "text"; text: string }
+    | { type: "tool_use"; id: string; name: string; input: Record<string, unknown> }
+    | { type: "tool_result"; tool_use_id: string; content: string };
+
+  const chat: Array<{ role: "user" | "assistant"; content: string | AnthropicBlock[] }> = [];
+  for (const m of messages) {
+    if (m.role === "system") continue;
+    if (m.role === "tool") {
+      const last = chat[chat.length - 1];
+      const block: AnthropicBlock = {
+        type: "tool_result",
+        tool_use_id: m.toolCallId || "",
+        content: m.content,
+      };
+      if (last?.role === "user" && Array.isArray(last.content)) {
+        last.content.push(block);
+      } else {
+        chat.push({ role: "user", content: [block] });
+      }
+      continue;
+    }
+    if (m.role === "assistant" && m.toolCalls?.length) {
+      const blocks: AnthropicBlock[] = [];
+      if (m.content) blocks.push({ type: "text", text: m.content });
+      for (const t of m.toolCalls) {
+        blocks.push({
+          type: "tool_use",
+          id: t.id,
+          name: t.name,
+          input: parseToolArgs(t.arguments),
+        });
+      }
+      chat.push({ role: "assistant", content: blocks });
+      continue;
+    }
+    if (m.role === "user" || m.role === "assistant") {
+      chat.push({ role: m.role, content: m.content });
+    }
+  }
 
   const response = await fetch(`${route.baseUrl.replace(/\/$/, "")}/v1/messages`, {
     method: "POST",
@@ -204,46 +331,125 @@ async function callAnthropic(
     },
     body: JSON.stringify({
       model: route.model,
-      // Flagship Claude models use adaptive thinking; keep headroom for a real reply.
       max_tokens: 8192,
       ...(system ? { system } : {}),
       messages: chat,
+      ...(tools?.length
+        ? {
+            tools: tools.map((t) => ({
+              name: t.name,
+              description: t.description,
+              input_schema: t.parameters,
+            })),
+          }
+        : {}),
     }),
   });
 
   const json = (await response.json().catch(() => ({}))) as {
     error?: { message?: string };
-    content?: Array<{ type?: string; text?: string }>;
+    content?: Array<{
+      type?: string;
+      text?: string;
+      id?: string;
+      name?: string;
+      input?: Record<string, unknown>;
+    }>;
   };
 
   if (!response.ok) {
     throw new Error(json.error?.message || `anthropic HTTP ${response.status}`);
   }
 
-  const text = json.content
-    ?.filter((b) => b.type === "text" && b.text)
+  const toolCalls = (json.content || [])
+    .filter((b) => b.type === "tool_use" && b.id && b.name)
+    .map((b) => ({
+      id: b.id!,
+      name: b.name!,
+      arguments: b.input || {},
+    }));
+
+  const text = (json.content || [])
+    .filter((b) => b.type === "text" && b.text)
     .map((b) => b.text)
     .join("")
     .trim();
+
+  if (toolCalls.length) {
+    return { text, provider: route.provider, toolCalls };
+  }
   if (!text) throw new Error("anthropic returned an empty reply");
-  return text;
+  return { text, provider: route.provider };
 }
 
 async function callGoogle(
   apiKey: string,
   route: LlmRoute,
-  messages: ChatMessage[]
-): Promise<string> {
+  messages: ChatMessage[],
+  tools?: AgentToolDefinition[]
+): Promise<LlmChatResult> {
   const system = messages
     .filter((m) => m.role === "system")
     .map((m) => m.content)
     .join("\n\n");
-  const contents = messages
-    .filter((m) => m.role === "user" || m.role === "assistant")
-    .map((m) => ({
-      role: m.role === "assistant" ? "model" : "user",
-      parts: [{ text: m.content }],
-    }));
+
+  type GeminiPart =
+    | { text: string }
+    | { functionCall: { name: string; args?: Record<string, unknown> } }
+    | {
+        functionResponse: {
+          name: string;
+          response: Record<string, unknown>;
+        };
+      };
+
+  const contents: Array<{ role: string; parts: GeminiPart[] }> = [];
+  for (const m of messages) {
+    if (m.role === "system") continue;
+    if (m.role === "tool") {
+      let responseObj: Record<string, unknown> = { result: m.content };
+      try {
+        const parsed = JSON.parse(m.content) as unknown;
+        if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+          responseObj = parsed as Record<string, unknown>;
+        }
+      } catch {
+        // keep wrapped string
+      }
+      contents.push({
+        role: "user",
+        parts: [
+          {
+            functionResponse: {
+              name: m.toolCallId || "tool",
+              response: responseObj,
+            },
+          },
+        ],
+      });
+      continue;
+    }
+    if (m.role === "assistant" && m.toolCalls?.length) {
+      const parts: GeminiPart[] = [];
+      if (m.content) parts.push({ text: m.content });
+      for (const t of m.toolCalls) {
+        parts.push({
+          functionCall: {
+            name: t.name,
+            args: parseToolArgs(t.arguments),
+          },
+        });
+      }
+      contents.push({ role: "model", parts });
+      continue;
+    }
+    if (m.role === "user" || m.role === "assistant") {
+      contents.push({
+        role: m.role === "assistant" ? "model" : "user",
+        parts: [{ text: m.content }],
+      });
+    }
+  }
 
   const url =
     `${route.baseUrl.replace(/\/$/, "")}/models/${encodeURIComponent(route.model)}:generateContent` +
@@ -253,26 +459,57 @@ async function callGoogle(
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({
-      ...(system
-        ? { systemInstruction: { parts: [{ text: system }] } }
-        : {}),
+      ...(system ? { systemInstruction: { parts: [{ text: system }] } } : {}),
       contents,
+      ...(tools?.length
+        ? {
+            tools: [
+              {
+                functionDeclarations: tools.map((t) => ({
+                  name: t.name,
+                  description: t.description,
+                  parameters: t.parameters,
+                })),
+              },
+            ],
+          }
+        : {}),
     }),
   });
 
   const json = (await response.json().catch(() => ({}))) as {
     error?: { message?: string };
-    candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }>;
+    candidates?: Array<{
+      content?: {
+        parts?: Array<{
+          text?: string;
+          functionCall?: { name?: string; args?: Record<string, unknown> };
+        }>;
+      };
+    }>;
   };
 
   if (!response.ok) {
     throw new Error(json.error?.message || `google HTTP ${response.status}`);
   }
 
-  const text = json.candidates?.[0]?.content?.parts
-    ?.map((p) => p.text || "")
+  const parts = json.candidates?.[0]?.content?.parts || [];
+  const toolCalls = parts
+    .filter((p) => p.functionCall?.name)
+    .map((p) => ({
+      id: p.functionCall!.name!,
+      name: p.functionCall!.name!,
+      arguments: p.functionCall!.args || {},
+    }));
+
+  const text = parts
+    .map((p) => p.text || "")
     .join("")
     .trim();
+
+  if (toolCalls.length) {
+    return { text, provider: route.provider, toolCalls };
+  }
   if (!text) throw new Error("google returned an empty reply");
-  return text;
+  return { text, provider: route.provider };
 }

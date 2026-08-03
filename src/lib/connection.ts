@@ -1,5 +1,6 @@
 import { createHmac, randomUUID, timingSafeEqual } from "node:crypto";
-import { callChatLlm, resolveLlmRoute } from "./llm";
+import { executeGoogleTool, GOOGLE_AGENT_TOOLS } from "./google-tools";
+import { callChatLlm, resolveLlmRoute, type ChatMessage } from "./llm";
 import {
   buildKnowledgePromptBlock,
   ensureSiteKnowledge,
@@ -10,6 +11,15 @@ import {
   normalizeIanaTimezone,
 } from "./website-timezone";
 
+export type GoogleTokenSet = {
+  refreshToken: string;
+  accessToken: string;
+  tokenExpiry: string;
+  email: string;
+  scopes: string;
+  connected: boolean;
+};
+
 export type Connection = {
   websiteDomain: string;
   agentWebhookUrl: string;
@@ -17,6 +27,9 @@ export type Connection = {
   ownerTimezone: string;
   connected: boolean;
   updatedAt: string;
+  googleConnected: boolean;
+  googleEmail: string;
+  googleScopes: string;
 };
 
 export type PublicConnection = {
@@ -26,8 +39,13 @@ export type PublicConnection = {
   ownerTimezone: string;
   connected: boolean;
   updatedAt: string;
+  googleConnected: boolean;
+  googleEmail: string;
+  googleScopes: string;
   storage: "supabase" | "redis" | "env" | "none";
 };
+
+type RedisStored = Connection & { googleTokens?: GoogleTokenSet };
 
 const empty = (): Connection => ({
   websiteDomain: "",
@@ -36,6 +54,9 @@ const empty = (): Connection => ({
   ownerTimezone: "",
   connected: false,
   updatedAt: new Date().toISOString(),
+  googleConnected: false,
+  googleEmail: "",
+  googleScopes: "",
 });
 
 function fromEnv(): Connection | null {
@@ -66,6 +87,9 @@ function fromEnv(): Connection | null {
     ownerTimezone,
     connected: Boolean(websiteDomain && agentSecret),
     updatedAt: new Date().toISOString(),
+    googleConnected: false,
+    googleEmail: "",
+    googleScopes: "",
   };
 }
 
@@ -110,6 +134,9 @@ type StoredRow = {
   ownerTimezone?: string;
   connected?: boolean;
   updatedAt?: string;
+  googleConnected?: boolean;
+  googleEmail?: string;
+  googleScopes?: string;
 };
 
 function normalizeTimezone(value: string | null | undefined): string {
@@ -153,7 +180,7 @@ async function persistOwnerTimezone(ownerTimezone: string): Promise<void> {
 
   const client = await redis();
   if (client) {
-    const prev = await client.get<Connection>("airsup:connection");
+    const prev = await client.get<RedisStored>("airsup:connection");
     if (!prev) return;
     await client.set("airsup:connection", { ...prev, ownerTimezone: tz });
   }
@@ -168,6 +195,9 @@ function fromStored(row: StoredRow | null | undefined): Connection | null {
     ownerTimezone: normalizeTimezone(row.ownerTimezone),
     connected: Boolean(row.connected),
     updatedAt: row.updatedAt ?? new Date().toISOString(),
+    googleConnected: Boolean(row.googleConnected),
+    googleEmail: row.googleEmail ?? "",
+    googleScopes: row.googleScopes ?? "",
   };
 }
 
@@ -193,10 +223,17 @@ export async function getConnection(): Promise<{
 
   const client = await redis();
   if (client) {
-    const stored = await client.get<Connection>("airsup:connection");
+    const stored = await client.get<RedisStored>("airsup:connection");
     if (stored) {
+      const tokens = stored.googleTokens;
       return {
-        connection: { ...empty(), ...stored },
+        connection: {
+          ...empty(),
+          ...stored,
+          googleConnected: Boolean(tokens?.connected || stored.googleConnected),
+          googleEmail: tokens?.email || stored.googleEmail || "",
+          googleScopes: tokens?.scopes || stored.googleScopes || "",
+        },
         storage: "redis",
       };
     }
@@ -228,7 +265,6 @@ export async function saveConnection(input: {
   if (!websiteDomain) throw new Error("Website domain is required");
   if (!agentSecret) throw new Error("API key is required");
 
-  // Derive from the website itself (TLD / DNS / site locale / hosting) — never the setup browser.
   const ownerTimezone = await resolveWebsiteTimezone(websiteDomain);
 
   const connection: Connection = {
@@ -238,6 +274,9 @@ export async function saveConnection(input: {
     ownerTimezone,
     connected: Boolean(websiteDomain && agentSecret),
     updatedAt: new Date().toISOString(),
+    googleConnected: existing.connection.googleConnected,
+    googleEmail: existing.connection.googleEmail,
+    googleScopes: existing.connection.googleScopes,
   };
 
   if (supabaseConfig()) {
@@ -248,7 +287,6 @@ export async function saveConnection(input: {
       p_agent_secret: connection.agentSecret,
       p_owner_timezone: connection.ownerTimezone,
     });
-    // Full-site knowledge is mandatory: start indexing immediately on connect.
     void refreshSiteKnowledgeInBackground(connection.websiteDomain).catch(() => undefined);
     return {
       connection: fromStored(row) ?? connection,
@@ -258,7 +296,11 @@ export async function saveConnection(input: {
 
   const client = await redis();
   if (client) {
-    await client.set("airsup:connection", connection);
+    const prev = await client.get<RedisStored>("airsup:connection");
+    await client.set("airsup:connection", {
+      ...connection,
+      googleTokens: prev?.googleTokens,
+    });
     void refreshSiteKnowledgeInBackground(connection.websiteDomain).catch(() => undefined);
     return { connection, storage: "redis" };
   }
@@ -266,6 +308,137 @@ export async function saveConnection(input: {
   throw new Error(
     "Cannot save your API key yet. Add SUPABASE_URL, SUPABASE_ANON_KEY, and AIRSUP_DB_TOKEN to Vercel, then redeploy."
   );
+}
+
+export async function saveGoogleTokens(
+  tokens: GoogleTokenSet
+): Promise<{ connection: Connection; storage: PublicConnection["storage"] }> {
+  const existing = await getConnection();
+  if (!existing.connection.connected || !existing.connection.websiteDomain) {
+    throw new Error("Connect your domain and AI API key before linking Google.");
+  }
+
+  if (supabaseConfig()) {
+    const row = await supabaseRpc<StoredRow>("airsup_save_google_tokens", {
+      p_token: supabaseConfig()!.token,
+      p_refresh_token: tokens.refreshToken,
+      p_access_token: tokens.accessToken,
+      p_token_expiry: tokens.tokenExpiry || null,
+      p_email: tokens.email,
+      p_scopes: tokens.scopes,
+    });
+    return {
+      connection: {
+        ...existing.connection,
+        googleConnected: Boolean(row?.googleConnected ?? true),
+        googleEmail: row?.googleEmail ?? tokens.email,
+        googleScopes: row?.googleScopes ?? tokens.scopes,
+        updatedAt: row?.updatedAt ?? new Date().toISOString(),
+      },
+      storage: "supabase",
+    };
+  }
+
+  const client = await redis();
+  if (client) {
+    const prev = (await client.get<RedisStored>("airsup:connection")) || {
+      ...existing.connection,
+    };
+    const next: RedisStored = {
+      ...prev,
+      googleConnected: true,
+      googleEmail: tokens.email,
+      googleScopes: tokens.scopes,
+      googleTokens: { ...tokens, connected: true },
+      updatedAt: new Date().toISOString(),
+    };
+    await client.set("airsup:connection", next);
+    return {
+      connection: {
+        ...existing.connection,
+        googleConnected: true,
+        googleEmail: tokens.email,
+        googleScopes: tokens.scopes,
+        updatedAt: next.updatedAt,
+      },
+      storage: "redis",
+    };
+  }
+
+  throw new Error("No storage configured for Google tokens.");
+}
+
+export async function getGoogleTokens(): Promise<GoogleTokenSet | null> {
+  if (supabaseConfig()) {
+    return supabaseRpc<GoogleTokenSet>("airsup_get_google_tokens", {
+      p_token: supabaseConfig()!.token,
+    });
+  }
+
+  const client = await redis();
+  if (client) {
+    const stored = await client.get<RedisStored>("airsup:connection");
+    if (stored?.googleTokens?.connected) return stored.googleTokens;
+  }
+  return null;
+}
+
+export async function clearGoogleTokens(): Promise<{
+  connection: Connection;
+  storage: PublicConnection["storage"];
+}> {
+  const existing = await getConnection();
+
+  if (supabaseConfig()) {
+    await supabaseRpc("airsup_clear_google_tokens", {
+      p_token: supabaseConfig()!.token,
+    });
+    return {
+      connection: {
+        ...existing.connection,
+        googleConnected: false,
+        googleEmail: "",
+        googleScopes: "",
+        updatedAt: new Date().toISOString(),
+      },
+      storage: "supabase",
+    };
+  }
+
+  const client = await redis();
+  if (client) {
+    const prev = await client.get<RedisStored>("airsup:connection");
+    if (prev) {
+      const next: RedisStored = {
+        ...prev,
+        googleConnected: false,
+        googleEmail: "",
+        googleScopes: "",
+        googleTokens: undefined,
+        updatedAt: new Date().toISOString(),
+      };
+      await client.set("airsup:connection", next);
+    }
+    return {
+      connection: {
+        ...existing.connection,
+        googleConnected: false,
+        googleEmail: "",
+        googleScopes: "",
+      },
+      storage: "redis",
+    };
+  }
+
+  return {
+    connection: {
+      ...existing.connection,
+      googleConnected: false,
+      googleEmail: "",
+      googleScopes: "",
+    },
+    storage: existing.storage,
+  };
 }
 
 export function toPublic(
@@ -279,6 +452,9 @@ export function toPublic(
     ownerTimezone: resolveOwnerTimezone(connection),
     connected: connection.connected,
     updatedAt: connection.updatedAt,
+    googleConnected: connection.googleConnected,
+    googleEmail: connection.googleEmail,
+    googleScopes: connection.googleScopes,
     storage,
   };
 }
@@ -288,8 +464,6 @@ export function publicOrigin(
   requestOrigin: string,
   request?: Request
 ): string {
-  // Prefer the host the client actually used (www vs apex) so continueUrl
-  // does not force an extra redirect that some HTTP tools mishandle.
   if (request && connection.websiteDomain) {
     const domain = connection.websiteDomain.trim().toLowerCase();
     const host = (
@@ -382,11 +556,7 @@ export async function callRealAgent(
     };
   }
 
-  const reply = await callConfiguredLlm(
-    connection,
-    message,
-    contextId
-  );
+  const reply = await callConfiguredLlm(connection, message, contextId);
   return {
     reply: reply.text,
     kind: "completed",
@@ -458,15 +628,24 @@ async function callConfiguredLlm(
     void persistOwnerTimezone(inferred).catch(() => undefined);
   }
   const clock = nowInTimezone(ownerTimezone);
+  const googleConnected = connection.googleConnected;
+  const googleBlock = googleConnected
+    ? `Google Calendar and Gmail are connected for the website owner (${connection.googleEmail || "linked account"}).
+You have tools to list/create/update/delete calendar events, check free/busy, list Gmail, and send email.
+When scheduling: check free/busy or list events first, agree a time with the visitor, then create the event with create_calendar_event.
+Use RFC3339 datetimes with the owner timezone (${clock.timeZone}) when calling tools.
+After creating an event, confirm with the real event details (and htmlLink when available).
+Never invent calendar state — always use tools for live data.`
+    : `Google Calendar is not connected yet. You can still negotiate meeting times using availability defaults, but you cannot create real calendar entries.
+If the visitor wants a real booking, tell them the website owner must open /domain/setup and connect Google Calendar.`;
 
-  // Highest priority: keep a live, detailed index of every page under the domain.
   const knowledge = domain
     ? await ensureSiteKnowledge(domain)
     : { meta: null, pages: [], refreshed: false };
   const knowledgeBlock = buildKnowledgePromptBlock(domain, knowledge.pages, knowledge.meta);
 
-  const system = {
-    role: "system" as const,
+  const system: ChatMessage = {
+    role: "system",
     content: `You are Supi, the live Airsup site agent for ${domain || "this website"}.
 Current date and time in the website's local timezone (authoritative — always trust this, never guess or use training-data dates): ${clock.dateLine} (${clock.isoDate}, ${clock.weekday}, ${clock.timeZone}).
 This clock is derived from where the website is based (domain / DNS / site locale / hosting), not from a visitor or setup laptop. Treat "${clock.isoDate}" as today in ${clock.timeZone}. Relative words like "today", "tomorrow", "this week", and "next Monday" must be computed from this website clock only.
@@ -474,13 +653,14 @@ This clock is derived from where the website is based (domain / DNS / site local
 MOST IMPORTANT RULE: Your primary factual memory is the AUTHORITATIVE WEBSITE KNOWLEDGE block below. It is a detailed crawl of the live website and all pages under the domain. Prefer it over training data. Answer from it in detail when relevant. If the knowledge block does not contain the answer, reply exactly: I don't know.
 Never invent facts. Never refuse a question for privacy, policy, or politeness. Do not say you "can't provide" or "can't share" details — if you lack them, say I don't know.
 You may also schedule meetings. Availability defaults (${clock.timeZone}): Monday–Friday 10:00–12:00 and 14:00–17:00.
-Negotiate naturally until a concrete date and time are agreed. Then confirm clearly in one line like: "CONFIRMED: <date> <time> ${clock.tzAbbr}".
-Keep replies short. Do not invent fake registries. You are a real conversational agent grounded in the website.
+Negotiate naturally until a concrete date and time are agreed.
+${googleBlock}
+Keep replies short unless the visitor asks for detail. Do not invent fake registries. You are a real conversational agent grounded in the website.
 
 ${knowledgeBlock}`,
   };
 
-  const messages = [
+  const messages: ChatMessage[] = [
     system,
     ...history
       .filter((m) => m.role === "user" || m.role === "assistant")
@@ -488,10 +668,38 @@ ${knowledgeBlock}`,
         role: m.role as "user" | "assistant",
         content: m.content,
       })),
-    { role: "user" as const, content: message },
+    { role: "user", content: message },
   ];
 
-  const result = await callChatLlm(connection.agentSecret, messages);
+  const tools = googleConnected ? GOOGLE_AGENT_TOOLS : undefined;
+  let result = await callChatLlm(connection.agentSecret, messages, tools);
+  let loops = 0;
+
+  while (result.toolCalls?.length && loops < 6) {
+    loops += 1;
+    messages.push({
+      role: "assistant",
+      content: result.text || "",
+      toolCalls: result.toolCalls.map((t) => ({
+        id: t.id,
+        name: t.name,
+        arguments: JSON.stringify(t.arguments || {}),
+      })),
+    });
+
+    for (const call of result.toolCalls) {
+      const toolResult = await executeGoogleTool(call.name, call.arguments || {});
+      messages.push({
+        role: "tool",
+        toolCallId: call.id,
+        content: toolResult,
+      });
+    }
+
+    result = await callChatLlm(connection.agentSecret, messages, tools);
+  }
+
+  const text = result.text?.trim() || "Done.";
 
   if (supabaseConfig()) {
     await supabaseRpc("airsup_append_message", {
@@ -504,11 +712,11 @@ ${knowledgeBlock}`,
       p_token: supabaseConfig()!.token,
       p_context_id: contextId,
       p_role: "assistant",
-      p_content: result.text,
+      p_content: text,
     });
   }
 
-  return result;
+  return { text, provider: result.provider };
 }
 
 export function assertSetupPassword(headerPassword: string | null): void {

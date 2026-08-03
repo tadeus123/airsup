@@ -148,6 +148,22 @@ a {
   color: var(--ink);
 }
 
+.setup-copy:disabled {
+  opacity: 0.65;
+  cursor: wait;
+}
+
+.setup-copy-muted {
+  margin-top: 1rem;
+  background: #f3f4f6;
+}
+
+a.setup-copy {
+  display: inline-block;
+  text-decoration: none;
+  text-align: center;
+}
+
 .admin {
   max-width: 920px;
   margin: 0 auto;

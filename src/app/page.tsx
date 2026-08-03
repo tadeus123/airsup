@@ -44,6 +44,37 @@ export default function SetupPage() {
     setTimeout(() => setCopied(false), 1500);
   }
 
+  async function onDomainSubmit() {
+    const domain = websiteDomain
+      .trim()
+      .toLowerCase()
+      .replace(/^https?:\/\//, "")
+      .replace(/\/$/, "")
+      .replace(/^www\./, "");
+    if (!domain) return;
+    setError("");
+    setBusy(true);
+    try {
+      const res = await fetch("/api/google/status");
+      const json = (await res.json().catch(() => ({}))) as {
+        connected?: boolean;
+        websiteDomain?: string;
+      };
+      const connectedDomain = (json.websiteDomain || "")
+        .toLowerCase()
+        .replace(/^www\./, "");
+      if (json.connected && connectedDomain === domain) {
+        window.location.href = "/domain/setup";
+        return;
+      }
+      setStep("secret");
+    } catch {
+      setStep("secret");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   return (
     <main className={`setup${step === "done" ? " setup-done" : ""}`}>
       {step === "domain" ? (
@@ -53,9 +84,7 @@ export default function SetupPage() {
             className="setup-form"
             onSubmit={(e) => {
               e.preventDefault();
-              if (!websiteDomain.trim()) return;
-              setError("");
-              setStep("secret");
+              void onDomainSubmit();
             }}
           >
             <div className="setup-row">
@@ -69,7 +98,9 @@ export default function SetupPage() {
                 autoFocus
                 required
               />
-              <button type="submit">Enter</button>
+              <button type="submit" disabled={busy}>
+                {busy ? "…" : "Enter"}
+              </button>
             </div>
           </form>
         </>
@@ -116,6 +147,9 @@ export default function SetupPage() {
           <button type="button" className="setup-copy" onClick={() => void copyPrompt()}>
             {copied ? "Copied" : "Copy prompt"}
           </button>
+          <a href="/domain/setup" className="setup-copy setup-copy-muted">
+            Connect Google Calendar
+          </a>
         </>
       ) : null}
 
