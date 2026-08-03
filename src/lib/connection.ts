@@ -1,4 +1,5 @@
 import { createHmac, randomUUID, timingSafeEqual } from "node:crypto";
+import { callChatLlm, resolveLlmRoute } from "./llm";
 
 export type Connection = {
   websiteDomain: string;
@@ -35,6 +36,11 @@ function fromEnv(): Connection | null {
   const agentSecret = (
     process.env.AGENT_SECRET ??
     process.env.OPENAI_API_KEY ??
+    process.env.ANTHROPIC_API_KEY ??
+    process.env.GOOGLE_API_KEY ??
+    process.env.GROQ_API_KEY ??
+    process.env.OPENROUTER_API_KEY ??
+    process.env.LLM_API_KEY ??
     ""
   ).trim();
   if (!websiteDomain && !agentWebhookUrl && !agentSecret) return null;
@@ -302,27 +308,31 @@ export async function callRealAgent(
     };
   }
 
-  const reply = await callOpenAI(
+  const reply = await callConfiguredLlm(
     connection.agentSecret,
     connection.websiteDomain,
     message,
     contextId
   );
   return {
-    reply,
+    reply: reply.text,
     kind: "completed",
     taskId,
     contextId,
-    backend: "openai",
+    backend: reply.provider,
   };
 }
 
-async function callOpenAI(
+export function llmBackendForKey(apiKey: string): string {
+  return resolveLlmRoute(apiKey).provider;
+}
+
+async function callConfiguredLlm(
   apiKey: string,
   domain: string,
   message: string,
   contextId: string
-): Promise<string> {
+): Promise<{ text: string; provider: string }> {
   const history =
     (await supabaseRpc<Array<{ role: string; content: string }>>("airsup_list_messages", {
       p_token: supabaseConfig()?.token,
@@ -330,7 +340,7 @@ async function callOpenAI(
     })) || [];
 
   const system = {
-    role: "system",
+    role: "system" as const,
     content: `You are Supi, the live Airsup site agent for ${domain || "this website"}.
 You schedule meetings and answer visitor questions for the website owner.
 Availability defaults (CET/CEST): Monday–Friday 10:00–12:00 and 14:00–17:00.
@@ -342,33 +352,14 @@ Keep replies short. Do not invent fake registries. You are a real conversational
     system,
     ...history
       .filter((m) => m.role === "user" || m.role === "assistant")
-      .map((m) => ({ role: m.role, content: m.content })),
-    { role: "user", content: message },
+      .map((m) => ({
+        role: m.role as "user" | "assistant",
+        content: m.content,
+      })),
+    { role: "user" as const, content: message },
   ];
 
-  const response = await fetch("https://api.openai.com/v1/chat/completions", {
-    method: "POST",
-    headers: {
-      "content-type": "application/json",
-      authorization: `Bearer ${apiKey}`,
-    },
-    body: JSON.stringify({
-      model: process.env.OPENAI_MODEL || "gpt-4o-mini",
-      messages,
-    }),
-  });
-
-  const json = (await response.json().catch(() => ({}))) as {
-    error?: { message?: string };
-    choices?: Array<{ message?: { content?: string } }>;
-  };
-
-  if (!response.ok) {
-    throw new Error(json.error?.message || `OpenAI HTTP ${response.status}`);
-  }
-
-  const text = json.choices?.[0]?.message?.content?.trim();
-  if (!text) throw new Error("OpenAI returned an empty reply");
+  const result = await callChatLlm(apiKey, messages);
 
   if (supabaseConfig()) {
     await supabaseRpc("airsup_append_message", {
@@ -381,11 +372,11 @@ Keep replies short. Do not invent fake registries. You are a real conversational
       p_token: supabaseConfig()!.token,
       p_context_id: contextId,
       p_role: "assistant",
-      p_content: text,
+      p_content: result.text,
     });
   }
 
-  return text;
+  return result;
 }
 
 export function assertSetupPassword(headerPassword: string | null): void {

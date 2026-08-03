@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { getConnection, publicOrigin } from "@/lib/connection";
+import { getConnection, llmBackendForKey, publicOrigin } from "@/lib/connection";
 import { customerSiteUrl, shouldHideSupiOnSetupHost } from "@/lib/host";
 
 export const runtime = "nodejs";
@@ -34,7 +34,7 @@ export async function GET(request: Request) {
     backend: connection.connected
       ? connection.agentWebhookUrl
         ? "webhook"
-        : "openai"
+        : llmBackendForKey(connection.agentSecret)
       : "builtin",
     storage,
     chatUrl: `${origin}/agent/chat`,

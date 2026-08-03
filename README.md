@@ -2,7 +2,7 @@
 
 Lives in this monorepo at `apps/airsup`.
 
-Online setup for **Airsup** — domain + OpenAI API key → Cursor prompt → Supi on your site.
+Online setup for **Airsup** — domain + AI API key (OpenAI, Anthropic, Google, Groq, OpenRouter, xAI, or any OpenAI-compatible key) → Cursor prompt → Supi on your site.
 
 - **Airsup** = the product / connector
 - **Supi** = the on-site agent

@@ -105,7 +105,7 @@ export function buildAgentCard(origin: string, connection: Connection) {
           {
             id: "setup",
             name: "Setup required",
-            description: "Connect your website and OpenAI API key to activate Supi.",
+            description: "Connect your website and AI API key to activate Supi.",
             tags: ["airsup", "supi", "website-agent"],
             examples: ["Hey Supi, when are you next available for a meeting?"],
             inputModes: ["text/plain", "application/json"],
