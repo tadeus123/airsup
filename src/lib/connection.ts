@@ -910,7 +910,7 @@ async function callConfiguredLlm(
   connection: Connection,
   message: string,
   contextId: string
-): Promise<{ text: string; provider: string }> {
+): Promise<{ text: string; provider: string; toolTrace: ToolTraceRecord }> {
   const domain = connection.websiteDomain;
 
   // Prefer the saved timezone on the hot path. Inference (DNS/homepage) only when missing.
@@ -1029,7 +1029,7 @@ ${liveLookupBlock}`,
     calendarConnected,
     gmailConnected,
   });
-  const toolsOffered = tools.map((t) => t.name);
+  const toolsOffered = (tools ?? []).map((t) => t.name);
   const toolsCalled: ToolCallTrace[] = [...(prefetch?.toolsCalled || [])];
   const { intentCalendar, intentGmail } = detectToolIntent(message);
 
