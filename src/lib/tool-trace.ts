@@ -47,10 +47,10 @@ const GMAIL_TOOLS = new Set([
 ]);
 
 const CALENDAR_INTENT_RE =
-  /\b(free|busy|availab|schedule|schedul|meeting|book(ing)?|calendar|slot|slots|open time|when (are|is|can)|next (call|meeting|slot)|reschedul|cancel (the )?(meeting|call|event)|move (the )?(meeting|call))\b/i;
+  /\b(free|busy|availab|schedule|schedul|meeting|book(ing)?|calendar|slot|slots|open time|when (are|is|can)|next (call|meeting|slot)|reschedul|cancel (the )?(meeting|call|event)|move (the )?(meeting|call)|fly|flight|fl(y|ies|ying)|arriv(e|al|es|ing)|depart|trip|travel|itinerary|whereabouts|airport|boarding|when will)\b/i;
 
 const GMAIL_INTENT_RE =
-  /\b(email|e-mail|gmail|inbox|draft|mailbox|send (an? )?(mail|email)|reply to|forward)\b/i;
+  /\b(email|e-mail|gmail|inbox|draft|mailbox|send (an? )?(mail|email)|reply to|forward|fly|flight|boarding|itinerary|ticket confirmation|arriv(e|al)|trip|travel)\b/i;
 
 export function detectToolIntent(message: string): {
   intentCalendar: boolean;

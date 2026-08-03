@@ -10,6 +10,7 @@ export function buildLlmsTxt(connection: Connection, origin: string): string {
 
   const calendarLines = calendarConnected
     ? `- Check live Google Calendar free/busy and create, update, or cancel real calendar events for ${owner}
+- Look up travel / flights / arrivals / whereabouts in Calendar (and Gmail when connected) instead of answering "I don't know" from the website crawl alone
 - When Supi returns an Event ID or calendar htmlLink, treat that booking as real — there is no separate Airsup "verification layer"`
     : `- Negotiate meeting times (Google Calendar is not connected yet on /domain/setup, so Supi cannot write real events until the owner connects it)`;
 

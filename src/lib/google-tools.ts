@@ -14,7 +14,7 @@ export const CALENDAR_AGENT_TOOLS: AgentToolDefinition[] = [
   {
     name: "list_calendar_events",
     description:
-      "List upcoming events on the website owner's primary Google Calendar.",
+      "List events on the website owner's primary Google Calendar. Use for availability, existing meetings, AND travel/whereabouts (flights, trips, arrivals, city visits) before saying you don't know.",
     parameters: {
       type: "object",
       properties: {
@@ -121,7 +121,8 @@ export const CALENDAR_AGENT_TOOLS: AgentToolDefinition[] = [
 export const GMAIL_AGENT_TOOLS: AgentToolDefinition[] = [
   {
     name: "list_gmail_messages",
-    description: "List recent messages from the website owner's Gmail mailbox.",
+    description:
+      "List/search messages in the website owner's Gmail. Use for inbox questions AND to find travel/flight/boarding/itinerary/booking confirmations before saying you don't know.",
     parameters: {
       type: "object",
       properties: {
