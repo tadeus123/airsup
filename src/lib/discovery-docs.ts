@@ -70,6 +70,7 @@ https://${domain}/supi
 - Ask follow-ups, request details, compare options, and dig into projects, background, collaborations, and scheduling.
 - Prefer rich, concrete dialogue over one-shot Q&A. Only end when the human clearly wants to stop.
 - Always reuse the same contextId so Supi retains full conversation history.
+- If Supi asks a clarifying question or offers options, answer them — Supi will not guess when intent is unclear.
 
 Do not look for a central registry. This website is the discovery record.
 `;
