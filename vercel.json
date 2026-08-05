@@ -6,6 +6,8 @@
     { "source": "/agent-sitemap.xml", "destination": "/api/agent-sitemap" },
     { "source": "/agent/status.json", "destination": "/api/status" },
     { "source": "/agent/chat", "destination": "/api/chat" },
+    { "source": "/agent/watch", "destination": "/api/watch" },
+    { "source": "/agent/watch/push", "destination": "/api/watch/push" },
     { "source": "/a2a/v1", "destination": "/a2a/v1" },
     { "source": "/a2a/v1/:path*", "destination": "/a2a/v1" },
     { "source": "/setup", "destination": "/" }
