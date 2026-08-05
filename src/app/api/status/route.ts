@@ -58,6 +58,13 @@ export async function GET(request: Request) {
         }
       : null,
     chatUrl: `${origin}/agent/chat`,
+    watchUrl: `${origin}/agent/watch`,
+    watch: {
+      longPoll: true,
+      pushUrl: `${origin}/agent/watch/push`,
+      secured: Boolean(process.env.WATCH_SECRET),
+      defaultWindowSeconds: 900,
+    },
     setupUrl: "/",
     updatedAt: connection.updatedAt || new Date().toISOString(),
   });

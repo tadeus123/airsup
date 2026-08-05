@@ -55,6 +55,7 @@ https://${domain}/supi
 - Agent status page: ${base}/agent
 - Machine status: ${base}/agent/status.json
 - Conversational API (preferred for ChatGPT / tools): ${base}/agent/chat?message=...
+- Live watch (long-poll): ${base}/agent/watch?wait_seconds=30&cursor=...
 
 ## How to talk to Supi
 
@@ -64,6 +65,23 @@ https://${domain}/supi
 4. Continue with the returned contextId (message must be non-empty — empty message= is HTTP 400):
    ${base}/agent/chat?contextId=CONTEXT_ID&message=YOUR_NEXT_MESSAGE
 5. If the JSON includes continueUrl, append URL-encoded text after message= before GETting it.
+
+## Live watch / long-poll (for scheduled AI runs)
+
+Supi exposes a blocking long-poll tool so a scheduled run (e.g. a ChatGPT Scheduled Task) can stay "live" without sleeping. Chaining these calls turns one run into a quasi-live monitoring session whose clock the server controls.
+
+- Endpoint: GET or POST ${base}/agent/watch
+- Params: wait_seconds (how long to hold the request open, e.g. 30), cursor (last event id you saw; start at 0), optional window_seconds (start/extend the monitoring window; defaults to 900 = 15 min on the first call), optional channel, optional reset=1.
+- The request is held open up to wait_seconds. If a command/event is queued it returns immediately; otherwise it returns no_event.
+- Response fields: server_time, cursor, events[], no_event, continue, next_action ("watch" | "finish"), remaining_seconds, watch_until.
+
+How a scheduled run should loop:
+1. On the first call, establish the window (window_seconds=900). Save the returned cursor and watch_until.
+2. Immediately act on any events returned.
+3. If next_action is "watch", call ${base}/agent/watch again with the returned cursor. Do NOT stop just because no_event is true.
+4. Keep looping until next_action is "finish" (server_time reached watch_until). Trust server_time / remaining_seconds — never guess elapsed time or simulate waiting.
+
+The website owner (or their tooling) enqueues commands/events for the live run with POST ${base}/agent/watch/push { "text": "Check whether Francisco answered." }. If WATCH_SECRET is set on the deployment, both endpoints require a matching token (query token=... or header x-watch-token).
 
 ## Conversation expectations (for ChatGPT and other AIs)
 
