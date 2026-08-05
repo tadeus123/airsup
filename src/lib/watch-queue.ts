@@ -5,11 +5,19 @@
  * call "alive" by long-polling this queue: the HTTP request is held open until a
  * command/event arrives or a short timeout elapses, then the agent immediately
  * calls again. Chaining those calls turns one run into a quasi-live session for
- * the length of a monitoring window that the server (not the model) controls.
+ * the length of a monitoring window.
  *
- * Storage is Redis-backed when Upstash is configured (durable and shared across
- * serverless invocations, which is required on Vercel), and falls back to an
- * in-process store otherwise (fine for a single long-lived dev server).
+ * Storage is chosen so the queue works in production on Vercel's serverless
+ * functions, where separate invocations do NOT share memory:
+ *   1. Supabase — reuses the app's already-deployed airsup_append_message /
+ *      airsup_list_messages RPCs, so it works with the Supabase credentials the
+ *      deployment already has (no new secrets, no schema migration).
+ *   2. Upstash Redis — used when configured.
+ *   3. In-process memory — fallback for a single long-lived server (dev).
+ *
+ * The monitoring window is NOT stored here: the watch route issues `watch_until`
+ * and the client echoes it back, which stays correct across stateless
+ * invocations while still keeping the server as the source of the clock.
  */
 
 import { timingSafeEqual } from "node:crypto";
@@ -22,10 +30,9 @@ export type WatchEvent = {
   data?: unknown;
 };
 
-export type ChannelSnapshot = {
+export type EventPage = {
   events: WatchEvent[];
   lastId: number;
-  windowUntil: number | null;
 };
 
 const MAX_EVENTS = 500;
@@ -33,12 +40,10 @@ const EVENT_TTL_SECONDS = 3600;
 export const DEFAULT_WINDOW_SECONDS = 900;
 export const MAX_WINDOW_SECONDS = 3600;
 
-type MemoryChannel = {
-  events: WatchEvent[];
-  seq: number;
-  windowUntil: number | null;
-};
+/** Context-id prefix used when the queue is stored in the Supabase messages table. */
+export const WATCH_CONTEXT_PREFIX = "__airsup_watch__:";
 
+type MemoryChannel = { events: WatchEvent[]; seq: number };
 const memory = new Map<string, MemoryChannel>();
 
 /**
@@ -51,9 +56,7 @@ export function assertWatchToken(request: Request): void {
   if (!expected) return;
   const url = new URL(request.url);
   const provided =
-    request.headers.get("x-watch-token") ||
-    url.searchParams.get("token") ||
-    "";
+    request.headers.get("x-watch-token") || url.searchParams.get("token") || "";
   const a = Buffer.from(provided);
   const b = Buffer.from(expected);
   if (a.length !== b.length || !timingSafeEqual(a, b)) {
@@ -67,6 +70,83 @@ export function normalizeChannel(raw: string | null | undefined): string {
   return cleaned || "default";
 }
 
+// --- Supabase backend (reuses existing, production-deployed RPCs) ----------
+
+function supabaseConfig() {
+  const url = (process.env.SUPABASE_URL ?? "").replace(/\/$/, "");
+  const anonKey = process.env.SUPABASE_ANON_KEY ?? "";
+  const token = process.env.AIRSUP_DB_TOKEN ?? "";
+  if (!url || !anonKey || !token) return null;
+  return { url, anonKey, token };
+}
+
+async function supabaseRpc<T>(
+  fn: string,
+  body: Record<string, unknown>
+): Promise<T | null> {
+  const cfg = supabaseConfig();
+  if (!cfg) return null;
+  const response = await fetch(`${cfg.url}/rest/v1/rpc/${fn}`, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      apikey: cfg.anonKey,
+      authorization: `Bearer ${cfg.anonKey}`,
+    },
+    body: JSON.stringify(body),
+  });
+  if (response.status === 204) return null;
+  const json = await response.json().catch(() => null);
+  if (!response.ok) {
+    const message =
+      (json &&
+        typeof json === "object" &&
+        "message" in json &&
+        String((json as { message: string }).message)) ||
+      `Supabase RPC ${fn} failed (${response.status})`;
+    throw new Error(message);
+  }
+  return json as T;
+}
+
+function watchContext(channel: string): string {
+  return `${WATCH_CONTEXT_PREFIX}${channel}`;
+}
+
+/** Is this context id an internal watch-queue channel (not a real conversation)? */
+export function isWatchContext(contextId: string | null | undefined): boolean {
+  return typeof contextId === "string" && contextId.startsWith(WATCH_CONTEXT_PREFIX);
+}
+
+function coerceStored(content: string, id: number): WatchEvent {
+  try {
+    const obj = JSON.parse(content) as Partial<WatchEvent>;
+    return {
+      id,
+      at: typeof obj.at === "string" ? obj.at : new Date().toISOString(),
+      type: typeof obj.type === "string" ? obj.type : "event",
+      text: typeof obj.text === "string" ? obj.text : "",
+      data: obj.data,
+    };
+  } catch {
+    return { id, at: new Date().toISOString(), type: "event", text: content };
+  }
+}
+
+async function supabaseList(channel: string): Promise<WatchEvent[]> {
+  const cfg = supabaseConfig();
+  if (!cfg) return [];
+  const rows =
+    (await supabaseRpc<Array<{ role: string; content: string }>>(
+      "airsup_list_messages",
+      { p_token: cfg.token, p_context_id: watchContext(channel) }
+    )) || [];
+  // Position in insertion order is the stable id (RPC returns chronological asc).
+  return rows.map((row, index) => coerceStored(row.content, index + 1));
+}
+
+// --- Upstash Redis backend --------------------------------------------------
+
 async function redis() {
   const url = process.env.UPSTASH_REDIS_REST_URL;
   const token = process.env.UPSTASH_REDIS_REST_TOKEN;
@@ -75,26 +155,12 @@ async function redis() {
   return new Redis({ url, token });
 }
 
-function memChannel(channel: string): MemoryChannel {
-  let entry = memory.get(channel);
-  if (!entry) {
-    entry = { events: [], seq: 0, windowUntil: null };
-    memory.set(channel, entry);
-  }
-  return entry;
-}
-
-function keys(channel: string) {
+function redisKeys(channel: string) {
   const base = `airsup:watch:${channel}`;
-  return {
-    events: `${base}:events`,
-    seq: `${base}:seq`,
-    window: `${base}:window`,
-  };
+  return { events: `${base}:events`, seq: `${base}:seq` };
 }
 
-/** Redis may auto-deserialize JSON members; accept both strings and objects. */
-function coerceEvent(raw: unknown): WatchEvent | null {
+function coerceRedis(raw: unknown): WatchEvent | null {
   let obj: unknown = raw;
   if (typeof raw === "string") {
     try {
@@ -115,21 +181,47 @@ function coerceEvent(raw: unknown): WatchEvent | null {
   };
 }
 
+// --- In-memory backend ------------------------------------------------------
+
+function memChannel(channel: string): MemoryChannel {
+  let entry = memory.get(channel);
+  if (!entry) {
+    entry = { events: [], seq: 0 };
+    memory.set(channel, entry);
+  }
+  return entry;
+}
+
+// --- Public API -------------------------------------------------------------
+
 export async function pushEvent(
   channel: string,
   input: { text: string; type?: string; data?: unknown }
 ): Promise<WatchEvent> {
   const ch = normalizeChannel(channel);
-  const client = await redis();
-  const base: Omit<WatchEvent, "id"> = {
+  const base = {
     at: new Date().toISOString(),
     type: (input.type || "command").slice(0, 60),
     text: input.text,
     data: input.data,
   };
 
+  if (supabaseConfig()) {
+    const cfg = supabaseConfig()!;
+    await supabaseRpc("airsup_append_message", {
+      p_token: cfg.token,
+      p_context_id: watchContext(ch),
+      p_role: "event",
+      p_content: JSON.stringify(base),
+    });
+    const events = await supabaseList(ch);
+    const id = events.length;
+    return { id, ...base };
+  }
+
+  const client = await redis();
   if (client) {
-    const k = keys(ch);
+    const k = redisKeys(ch);
     const id = await client.incr(k.seq);
     const event: WatchEvent = { id, ...base };
     await client.rpush(k.events, JSON.stringify(event));
@@ -145,61 +237,45 @@ export async function pushEvent(
   entry.seq += 1;
   const event: WatchEvent = { id: entry.seq, ...base };
   entry.events.push(event);
-  if (entry.events.length > MAX_EVENTS) {
-    entry.events = entry.events.slice(-MAX_EVENTS);
-  }
+  if (entry.events.length > MAX_EVENTS) entry.events = entry.events.slice(-MAX_EVENTS);
   return event;
 }
 
-export async function readSnapshot(
+export async function readEventsAfter(
   channel: string,
   afterCursor: number
-): Promise<ChannelSnapshot> {
+): Promise<EventPage> {
   const ch = normalizeChannel(channel);
-  const client = await redis();
 
+  if (supabaseConfig()) {
+    const all = await supabaseList(ch);
+    const lastId = all.length;
+    return { events: all.filter((e) => e.id > afterCursor), lastId };
+  }
+
+  const client = await redis();
   if (client) {
-    const k = keys(ch);
-    const [rawEvents, rawWindow] = await Promise.all([
-      client.lrange(k.events, 0, -1) as Promise<unknown[]>,
-      client.get(k.window) as Promise<unknown>,
-    ]);
-    const all = (rawEvents || [])
-      .map(coerceEvent)
+    const k = redisKeys(ch);
+    const raw = (await client.lrange(k.events, 0, -1)) as unknown[];
+    const all = (raw || [])
+      .map(coerceRedis)
       .filter((e): e is WatchEvent => e !== null);
     const lastId = all.reduce((max, e) => Math.max(max, e.id), 0);
-    const windowUntil = parseWindow(rawWindow);
-    return {
-      events: all.filter((e) => e.id > afterCursor),
-      lastId,
-      windowUntil,
-    };
+    return { events: all.filter((e) => e.id > afterCursor), lastId };
   }
 
   const entry = memChannel(ch);
   return {
     events: entry.events.filter((e) => e.id > afterCursor),
     lastId: entry.seq,
-    windowUntil: entry.windowUntil,
   };
 }
 
-function parseWindow(raw: unknown): number | null {
-  if (raw == null) return null;
-  const n = typeof raw === "number" ? raw : Number(raw);
-  return Number.isFinite(n) && n > 0 ? n : null;
-}
-
-export async function setWindowUntil(
-  channel: string,
-  untilMs: number
-): Promise<void> {
-  const ch = normalizeChannel(channel);
-  const client = await redis();
-  if (client) {
-    const k = keys(ch);
-    await client.set(k.window, String(untilMs), { ex: EVENT_TTL_SECONDS });
-    return;
+/** Which backend is active, for status/debugging. */
+export function watchBackend(): "supabase" | "redis" | "memory" {
+  if (supabaseConfig()) return "supabase";
+  if (process.env.UPSTASH_REDIS_REST_URL && process.env.UPSTASH_REDIS_REST_TOKEN) {
+    return "redis";
   }
-  memChannel(ch).windowUntil = untilMs;
+  return "memory";
 }

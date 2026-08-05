@@ -115,7 +115,7 @@ export function buildAgentCard(origin: string, connection: Connection) {
           {
             id: "live-watch",
             name: "Live watch (long-poll)",
-            description: `Keeps a scheduled AI run "live" via a blocking long-poll. Call GET/POST ${origin}/agent/watch with wait_seconds and cursor: the request is held open until a command/event is queued or the timeout elapses, then call again with the returned cursor. Loop until next_action is "finish". The server owns the clock (server_time, remaining_seconds, watch_until) — do not guess elapsed time. Owners enqueue commands with POST ${origin}/agent/watch/push.`,
+            description: `Keeps a scheduled AI run "live" via a blocking long-poll. Call GET/POST ${origin}/agent/watch with wait_seconds and cursor: the request is held open until a command/event is queued or the timeout elapses, then call again with the returned cursor and watch_until. Loop until next_action is "finish". The server owns the clock (server_time, remaining_seconds, watch_until) — do not guess elapsed time. Owners enqueue commands with POST ${origin}/agent/watch/push.`,
             tags: ["airsup", "supi", "watch", "long-poll", "scheduled", "live"],
             examples: [
               "Watch for new instructions for the next 15 minutes.",
