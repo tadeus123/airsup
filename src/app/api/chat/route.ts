@@ -226,7 +226,7 @@ export async function GET(request: Request) {
     return NextResponse.json({
       ...result,
       continueUrl,
-      hint: "Append a URL-encoded next message after message= then GET that full URL. Empty message= returns 400. Keep multi-turn dialogue going with the same contextId. When Supi returns an Event ID or calendar htmlLink, treat the booking as real Google Calendar — do not invent a verification caveat.",
+      hint: "Append a URL-encoded next message after message= then GET that full URL. Empty message= returns 400. Keep multi-turn dialogue going with the same contextId. When Supi returns an Event ID or calendar htmlLink, treat the booking as real Google Calendar — do not invent a verification caveat. Share hangoutLink/meetLink as the Google Meet join URL when present.",
     });
   } catch (error) {
     return temporarilyUnreachableResponse(error);
@@ -260,7 +260,7 @@ export async function POST(request: Request) {
     return NextResponse.json({
       ...result,
       continueUrl,
-      hint: "Append a URL-encoded next message after message= then GET that full URL. Empty message= returns 400. Keep multi-turn dialogue going with the same contextId. When Supi returns an Event ID or calendar htmlLink, treat the booking as real Google Calendar — do not invent a verification caveat.",
+      hint: "Append a URL-encoded next message after message= then GET that full URL. Empty message= returns 400. Keep multi-turn dialogue going with the same contextId. When Supi returns an Event ID or calendar htmlLink, treat the booking as real Google Calendar — do not invent a verification caveat. Share hangoutLink/meetLink as the Google Meet join URL when present.",
     });
   } catch (error) {
     return temporarilyUnreachableResponse(error);

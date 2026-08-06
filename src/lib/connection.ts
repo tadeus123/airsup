@@ -25,7 +25,6 @@ import {
   inferWebsiteTimezone,
   normalizeIanaTimezone,
 } from "./website-timezone";
-import { isWatchContext } from "./watch-queue";
 
 export type GoogleTokenSet = {
   refreshToken: string;
@@ -945,7 +944,8 @@ HARD RULES for live calendar facts (non-negotiable):
 - For travel / whereabouts / flights / arrivals / trips / "when will X be in Y" / "when does X fly": you MUST call list_calendar_events over a sensible range (often now → +60 days) BEFORE saying you don't know. Read event titles/locations/times; answer from what you find.
 - Preferred working windows after tools return: Monday–Friday 10:00–12:00 and 14:00–17:00 (${clock.timeZone}). Use these only as a filter on real free/busy results — never report them as free without a tool call.
 - If a tool fails or returns an error, say you could not check the live calendar. Do not invent openings or travel plans.
-- After agreeing a time, create or update the event with create_calendar_event / update_calendar_event. Confirm with real event details (Event ID + htmlLink when available). Say clearly that it is on Google Calendar.
+- After agreeing a time, create or update the event with create_calendar_event / update_calendar_event. create_calendar_event attaches a Google Meet link by default (hangoutLink / meetLink in the tool result). Confirm with real event details: Event ID, htmlLink, and the Google Meet link. Paste the Meet URL in your reply so the visitor can join. Say clearly that it is on Google Calendar.
+- Never invent a Meet URL — only share hangoutLink/meetLink returned by the tool.
 - Use RFC3339 datetimes with timezone ${clock.timeZone} in tool arguments.
 - Never invent calendar state.`
     : `Google Calendar is not connected yet. You cannot know real free/busy or travel plans from a calendar.
@@ -1229,9 +1229,6 @@ export async function listAdminConversations(): Promise<{
 
   const byContext = new Map<string, AdminMessage[]>();
   for (const row of rows) {
-    // Skip the internal long-poll watch queue (stored in the messages table);
-    // it is not a real visitor conversation.
-    if (isWatchContext(row.contextId)) continue;
     const list = byContext.get(row.contextId) || [];
     list.push(row);
     byContext.set(row.contextId, list);

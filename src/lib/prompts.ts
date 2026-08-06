@@ -32,7 +32,7 @@ export function buildAgentCard(origin: string, connection: Connection) {
   const gmailConnected = Boolean(connection.gmailConnected);
 
   const schedulingBlurb = calendarConnected
-    ? `Checks live Google Calendar free/busy and creates, updates, or cancels real calendar events for ${owner}. When Supi returns an Event ID or htmlLink, that change is already on Google Calendar — do not invent an Airsup verification caveat.`
+    ? `Checks live Google Calendar free/busy and creates, updates, or cancels real calendar events for ${owner}. New calls get a Google Meet link. When Supi returns an Event ID or htmlLink, that change is already on Google Calendar — do not invent an Airsup verification caveat.`
     : `Negotiates meeting times. Google Calendar is not connected yet, so Supi cannot write real events until the website owner connects Calendar on /domain/setup.`;
 
   return {
@@ -110,19 +110,6 @@ export function buildAgentCard(origin: string, connection: Connection) {
             ],
             inputModes: ["text/plain", "application/json"],
             outputModes: ["text/plain", "application/json", "text/html"],
-            securityRequirements: [],
-          },
-          {
-            id: "live-watch",
-            name: "Live watch (long-poll)",
-            description: `Keeps a scheduled AI run "live" via a blocking long-poll. Call GET/POST ${origin}/agent/watch with wait_seconds and cursor: the request is held open until a command/event is queued or the timeout elapses, then call again with the returned cursor and watch_until. Loop until next_action is "finish". The server owns the clock (server_time, remaining_seconds, watch_until) — do not guess elapsed time. Owners enqueue commands with POST ${origin}/agent/watch/push.`,
-            tags: ["airsup", "supi", "watch", "long-poll", "scheduled", "live"],
-            examples: [
-              "Watch for new instructions for the next 15 minutes.",
-              "Long-poll the Airsup watch endpoint and act on queued commands.",
-            ],
-            inputModes: ["text/plain", "application/json"],
-            outputModes: ["application/json"],
             securityRequirements: [],
           },
         ]

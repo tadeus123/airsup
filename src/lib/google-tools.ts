@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { getValidAccessToken } from "./google-oauth";
 
 export type AgentToolDefinition = {
@@ -40,13 +41,13 @@ export const CALENDAR_AGENT_TOOLS: AgentToolDefinition[] = [
   {
     name: "create_calendar_event",
     description:
-      "Create a Google Calendar event on the website owner's calendar and optionally invite guests.",
+      "Create a Google Calendar event on the website owner's calendar and optionally invite guests. Calls/meetings always get a Google Meet link (hangoutLink) unless addGoogleMeet is false.",
     parameters: {
       type: "object",
       properties: {
         summary: { type: "string", description: "Event title." },
         description: { type: "string", description: "Event details." },
-        location: { type: "string", description: "Location or meeting link." },
+        location: { type: "string", description: "Physical location if any. Do not put Meet here — Meet is attached automatically." },
         start: {
           type: "string",
           description:
@@ -65,13 +66,19 @@ export const CALENDAR_AGENT_TOOLS: AgentToolDefinition[] = [
           type: "string",
           description: "IANA timezone. Defaults to OWNER_TIMEZONE / WEBSITE_TIMEZONE / UTC.",
         },
+        addGoogleMeet: {
+          type: "boolean",
+          description:
+            "Attach a Google Meet video link. Default true for calls/meetings. Set false only for in-person or non-call events.",
+        },
       },
       required: ["summary", "start", "end"],
     },
   },
   {
     name: "update_calendar_event",
-    description: "Update an existing Google Calendar event by event id.",
+    description:
+      "Update an existing Google Calendar event by event id. Pass addGoogleMeet=true to attach a Meet link if the event has none.",
     parameters: {
       type: "object",
       properties: {
@@ -83,6 +90,10 @@ export const CALENDAR_AGENT_TOOLS: AgentToolDefinition[] = [
         end: { type: "string" },
         attendeeEmails: { type: "array", items: { type: "string" } },
         timezone: { type: "string" },
+        addGoogleMeet: {
+          type: "boolean",
+          description: "If true, create a Google Meet link on this event.",
+        },
       },
       required: ["eventId"],
     },
@@ -512,10 +523,14 @@ async function listEvents(accessToken: string, args: Record<string, unknown>) {
       description?: string;
       location?: string;
       htmlLink?: string;
+      hangoutLink?: string;
       start?: { dateTime?: string; date?: string };
       end?: { dateTime?: string; date?: string };
       attendees?: Array<{ email?: string; responseStatus?: string }>;
       status?: string;
+      conferenceData?: {
+        entryPoints?: Array<{ entryPointType?: string; uri?: string }>;
+      };
     }>;
   };
 
@@ -526,6 +541,7 @@ async function listEvents(accessToken: string, args: Record<string, unknown>) {
       description: e.description,
       location: e.location,
       htmlLink: e.htmlLink,
+      hangoutLink: meetLinkFromEvent(e),
       start: e.start?.dateTime || e.start?.date,
       end: e.end?.dateTime || e.end?.date,
       status: e.status,
@@ -537,6 +553,24 @@ async function listEvents(accessToken: string, args: Record<string, unknown>) {
   });
 }
 
+function meetLinkFromEvent(event: {
+  hangoutLink?: string;
+  conferenceData?: {
+    entryPoints?: Array<{ entryPointType?: string; uri?: string }>;
+  };
+}): string | undefined {
+  if (event.hangoutLink) return event.hangoutLink;
+  const video = event.conferenceData?.entryPoints?.find(
+    (p) => p.entryPointType === "video" && p.uri
+  );
+  return video?.uri;
+}
+
+function wantsGoogleMeet(args: Record<string, unknown>): boolean {
+  if (typeof args.addGoogleMeet === "boolean") return args.addGoogleMeet;
+  return true;
+}
+
 async function createEvent(accessToken: string, args: Record<string, unknown>) {
   const timezone = String(args.timezone || defaultOwnerTimezone());
   const attendees = Array.isArray(args.attendeeEmails)
@@ -545,8 +579,9 @@ async function createEvent(accessToken: string, args: Record<string, unknown>) {
         .filter(Boolean)
         .map((email) => ({ email }))
     : [];
+  const withMeet = wantsGoogleMeet(args);
 
-  const body = {
+  const body: Record<string, unknown> = {
     summary: String(args.summary || "Meeting"),
     description: args.description ? String(args.description) : undefined,
     location: args.location ? String(args.location) : undefined,
@@ -555,9 +590,19 @@ async function createEvent(accessToken: string, args: Record<string, unknown>) {
     attendees: attendees.length ? attendees : undefined,
   };
 
+  if (withMeet) {
+    body.conferenceData = {
+      createRequest: {
+        requestId: randomUUID(),
+        conferenceSolutionKey: { type: "hangoutsMeet" },
+      },
+    };
+  }
+
   const params = new URLSearchParams({
     sendUpdates: attendees.length ? "all" : "none",
   });
+  if (withMeet) params.set("conferenceDataVersion", "1");
 
   const json = (await googleFetch(
     `https://www.googleapis.com/calendar/v3/calendars/primary/events?${params}`,
@@ -570,15 +615,23 @@ async function createEvent(accessToken: string, args: Record<string, unknown>) {
   )) as {
     id?: string;
     htmlLink?: string;
+    hangoutLink?: string;
     summary?: string;
     start?: { dateTime?: string };
     end?: { dateTime?: string };
+    conferenceData?: {
+      entryPoints?: Array<{ entryPointType?: string; uri?: string }>;
+    };
   };
+
+  const hangoutLink = meetLinkFromEvent(json);
 
   return JSON.stringify({
     ok: true,
     id: json.id,
     htmlLink: json.htmlLink,
+    hangoutLink: hangoutLink || null,
+    meetLink: hangoutLink || null,
     summary: json.summary,
     start: json.start?.dateTime,
     end: json.end?.dateTime,
@@ -602,7 +655,19 @@ async function updateEvent(accessToken: string, args: Record<string, unknown>) {
       .map((email) => ({ email }));
   }
 
+  const addMeet =
+    typeof args.addGoogleMeet === "boolean" ? args.addGoogleMeet : false;
+  if (addMeet) {
+    patch.conferenceData = {
+      createRequest: {
+        requestId: randomUUID(),
+        conferenceSolutionKey: { type: "hangoutsMeet" },
+      },
+    };
+  }
+
   const params = new URLSearchParams({ sendUpdates: "all" });
+  if (addMeet) params.set("conferenceDataVersion", "1");
   const json = (await googleFetch(
     `https://www.googleapis.com/calendar/v3/calendars/primary/events/${encodeURIComponent(eventId)}?${params}`,
     {
@@ -611,12 +676,24 @@ async function updateEvent(accessToken: string, args: Record<string, unknown>) {
       headers: { "content-type": "application/json" },
       body: JSON.stringify(patch),
     }
-  )) as { id?: string; htmlLink?: string; summary?: string };
+  )) as {
+    id?: string;
+    htmlLink?: string;
+    hangoutLink?: string;
+    summary?: string;
+    conferenceData?: {
+      entryPoints?: Array<{ entryPointType?: string; uri?: string }>;
+    };
+  };
+
+  const hangoutLink = meetLinkFromEvent(json);
 
   return JSON.stringify({
     ok: true,
     id: json.id,
     htmlLink: json.htmlLink,
+    hangoutLink: hangoutLink || null,
+    meetLink: hangoutLink || null,
     summary: json.summary,
   });
 }
