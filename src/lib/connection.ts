@@ -907,16 +907,26 @@ function nowInTimezone(timeZone: string): {
   return { dateLine: fmt.format(now), weekday, isoDate, timeZone: tz, tzAbbr };
 }
 
+function isTrivialGreeting(message: string): boolean {
+  const t = message.trim();
+  if (t.length > 48) return false;
+  return (
+    /^(hi|hello|hey|yo|sup|ping|hola|hallo|hiya)(\s+\w{1,12})?([\s,!.?]*)$/i.test(t) ||
+    /^good\s*(morning|afternoon|evening)([\s,!.?]*)$/i.test(t)
+  );
+}
+
 async function callConfiguredLlm(
   connection: Connection,
   message: string,
   contextId: string
 ): Promise<{ text: string; provider: string; toolTrace: ToolTraceRecord }> {
   const domain = connection.websiteDomain;
+  const trivial = isTrivialGreeting(message);
 
   // Prefer the saved timezone on the hot path. Inference (DNS/homepage) only when missing.
   let ownerTimezone = resolveOwnerTimezone(connection);
-  if (domain && !connection.ownerTimezone) {
+  if (domain && !connection.ownerTimezone && !trivial) {
     const inferred = await resolveWebsiteTimezone(domain);
     if (inferred) {
       ownerTimezone = inferred;
@@ -929,7 +939,7 @@ async function callConfiguredLlm(
       p_token: supabaseConfig()?.token,
       p_context_id: contextId,
     }).then((rows) => rows || []),
-    domain
+    domain && !trivial
       ? getSiteKnowledgeForChat(domain)
       : Promise.resolve({ meta: null, pages: [], refreshed: false }),
   ]);
