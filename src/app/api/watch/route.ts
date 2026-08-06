@@ -1,4 +1,4 @@
-import { NextResponse } from "next/server";
+﻿import { NextResponse } from "next/server";
 import { getConnection } from "@/lib/connection";
 import {
   DEFAULT_WINDOW_SECONDS,
@@ -90,7 +90,7 @@ async function runWatch(input: WatchInput) {
 
   // The monitoring window is stateless: the server issues `watch_until` and the
   // client echoes it back. That is correct across serverless invocations (which
-  // share no memory) while keeping the server as the source of the clock — the
+  // share no memory) while keeping the server as the source of the clock ÔÇö the
   // model never guesses elapsed time, it only echoes a server-issued timestamp.
   let windowUntil: number;
   if (!input.reset && input.watchUntil && input.watchUntil > now) {
@@ -138,7 +138,7 @@ async function runWatch(input: WatchInput) {
     watch_until: new Date(windowUntil).toISOString(),
     waited_seconds: Math.round((end - startedAt) / 1000),
     instructions: continueWatching
-      ? "Immediately handle any events above, then call this watch tool again with the returned cursor AND watch_until. Do NOT stop just because no_event is true. Keep looping until next_action is 'finish'. Trust server_time / remaining_seconds — never guess how much time has passed."
+      ? "Immediately handle any events above, then call this watch tool again with the returned cursor AND watch_until. Do NOT stop just because no_event is true. Keep looping until next_action is 'finish'. Trust server_time / remaining_seconds ÔÇö never guess how much time has passed."
       : "The monitoring window is over. Handle any final events above, then finish the run.",
   });
 }
