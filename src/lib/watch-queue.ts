@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Long-poll event queue that powers the Airsup `watch_endpoint` primitive.
  *
  * A remote scheduled agent (e.g. a ChatGPT Scheduled Task) keeps a single tool
@@ -9,11 +9,11 @@
  *
  * Storage is chosen so the queue works in production on Vercel's serverless
  * functions, where separate invocations do NOT share memory:
- *   1. Supabase — reuses the app's already-deployed airsup_append_message /
+ *   1. Supabase ÔÇö reuses the app's already-deployed airsup_append_message /
  *      airsup_list_messages RPCs, so it works with the Supabase credentials the
  *      deployment already has (no new secrets, no schema migration).
- *   2. Upstash Redis — used when configured.
- *   3. In-process memory — fallback for a single long-lived server (dev).
+ *   2. Upstash Redis ÔÇö used when configured.
+ *   3. In-process memory ÔÇö fallback for a single long-lived server (dev).
  *
  * The monitoring window is NOT stored here: the watch route issues `watch_until`
  * and the client echoes it back, which stays correct across stateless

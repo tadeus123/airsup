@@ -25,6 +25,7 @@ import {
   inferWebsiteTimezone,
   normalizeIanaTimezone,
 } from "./website-timezone";
+import { isWatchContext } from "./watch-queue";
 
 export type GoogleTokenSet = {
   refreshToken: string;
@@ -1229,6 +1230,9 @@ export async function listAdminConversations(): Promise<{
 
   const byContext = new Map<string, AdminMessage[]>();
   for (const row of rows) {
+    // Skip the internal long-poll watch queue (stored in the messages table);
+    // it is not a real visitor conversation.
+    if (isWatchContext(row.contextId)) continue;
     const list = byContext.get(row.contextId) || [];
     list.push(row);
     byContext.set(row.contextId, list);
