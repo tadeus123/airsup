@@ -35,7 +35,7 @@ const MAX_PAGES = Number(process.env.SITE_KNOWLEDGE_MAX_PAGES || 120);
 const MAX_PAGE_CHARS = Number(process.env.SITE_KNOWLEDGE_MAX_PAGE_CHARS || 40_000);
 const MAX_TOTAL_CHARS = Number(process.env.SITE_KNOWLEDGE_MAX_TOTAL_CHARS || 280_000);
 // Keep chat prompts lean — huge contexts make LLM calls exceed ChatGPT/browser timeouts (~15s).
-const MAX_PROMPT_CHARS = Number(process.env.SITE_KNOWLEDGE_MAX_PROMPT_CHARS || 24_000);
+const MAX_PROMPT_CHARS = Number(process.env.SITE_KNOWLEDGE_MAX_PROMPT_CHARS || 12_000);
 const MAX_PAGE_PROMPT_CHARS = Number(process.env.SITE_KNOWLEDGE_MAX_PAGE_PROMPT_CHARS || 4_000);
 const STALE_MS = Number(process.env.SITE_KNOWLEDGE_STALE_MS || 30 * 60 * 1000);
 const FETCH_TIMEOUT_MS = Number(process.env.SITE_KNOWLEDGE_FETCH_TIMEOUT_MS || 12_000);

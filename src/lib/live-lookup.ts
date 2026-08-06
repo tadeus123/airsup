@@ -47,13 +47,14 @@ const STOP = new Set([
   "supi",
 ]);
 
+const TRAVEL_RE =
+  /\b(fly|flight|fl(y|ies|ying)|arriv(e|al|es|ing)|depart|trip|travel|itinerary|boarding|whereabouts|airport|hotel|train|plane|landing)\b/i;
+
 /** Personal / operational facts that live in Calendar or Gmail, not the website crawl. */
 export function needsLiveLookup(message: string): boolean {
   const { intentCalendar, intentGmail } = detectToolIntent(message);
   if (intentCalendar || intentGmail) return true;
-  return /\b(plan|plans|going|visit|visiting|city|hotel|train|plane|land|landing|leave|leaving|return|returning|out of (town|office)|ooo|busy (on|this)|next week|this week|tomorrow|tonight)\b/i.test(
-    message
-  );
+  return TRAVEL_RE.test(message);
 }
 
 export function looksLikeDontKnow(text: string): boolean {
@@ -80,7 +81,7 @@ export function extractLookupKeywords(message: string): string[] {
     if (lower.length < 3) continue;
     if (STOP.has(lower)) continue;
     if (!out.some((x) => x.toLowerCase() === lower)) out.push(w);
-    if (out.length >= 8) break;
+    if (out.length >= 6) break;
   }
   return out;
 }
@@ -100,9 +101,17 @@ function daysAgo(days: number): string {
   return new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
 }
 
+async function runTool(
+  name: string,
+  args: Record<string, unknown>
+): Promise<{ name: string; ok: boolean; raw: string }> {
+  const raw = await executeGoogleTool(name, args);
+  return { name, ok: toolResultOk(raw), raw };
+}
+
 /**
- * Deterministically fetch Calendar/Gmail before the LLM answers.
- * Stops "I don't know" when the model forgets to call tools.
+ * Fast deterministic Calendar/Gmail prefetch.
+ * Parallel, small payloads — keep ChatGPT under ~15s total.
  */
 export async function prefetchLiveContext(opts: {
   message: string;
@@ -113,84 +122,91 @@ export async function prefetchLiveContext(opts: {
   if (!opts.calendarConnected && !opts.gmailConnected) return null;
 
   const keywords = extractLookupKeywords(opts.message);
+  const travel = TRAVEL_RE.test(opts.message);
+  const { intentGmail } = detectToolIntent(opts.message);
+  const wantGmail = opts.gmailConnected && (travel || intentGmail);
+  const wantCalendar = opts.calendarConnected;
+
   const toolsCalled: ToolCallTrace[] = [];
   const parts: string[] = [];
   let calendarHitCount = 0;
   let gmailHitCount = 0;
 
-  if (opts.calendarConnected) {
-    const wide = await executeGoogleTool("list_calendar_events", {
-      timeMin: daysAgo(14),
-      timeMax: daysFromNow(120),
-      maxResults: 40,
-    });
-    toolsCalled.push({ name: "list_calendar_events", ok: toolResultOk(wide) });
-    parts.push(`CALENDAR_EVENTS_WIDE_WINDOW (-14d … +120d):\n${wide}`);
-    try {
-      const parsed = JSON.parse(wide) as { events?: unknown[] };
-      calendarHitCount += parsed.events?.length || 0;
-    } catch {
-      /* ignore */
-    }
+  const jobs: Array<Promise<{ kind: string; name: string; ok: boolean; raw: string; q?: string }>> =
+    [];
 
-    if (keywords.length) {
-      const q = keywords.slice(0, 5).join(" ");
-      const searched = await executeGoogleTool("list_calendar_events", {
-        timeMin: daysAgo(30),
-        timeMax: daysFromNow(180),
-        maxResults: 25,
-        query: q,
-      });
-      toolsCalled.push({
-        name: "list_calendar_events",
-        ok: toolResultOk(searched),
-      });
-      parts.push(`CALENDAR_EVENTS_SEARCH (q=${q}):\n${searched}`);
+  if (wantCalendar) {
+    // One compact window — enough for availability + near-term travel.
+    jobs.push(
+      runTool("list_calendar_events", {
+        timeMin: daysAgo(travel ? 7 : 1),
+        timeMax: daysFromNow(travel ? 60 : 14),
+        maxResults: travel ? 25 : 15,
+        ...(keywords[0] ? { query: keywords.slice(0, 3).join(" ") } : {}),
+      }).then((r) => ({ kind: "calendar", ...r }))
+    );
+  }
+
+  if (wantGmail) {
+    const terms = unique([
+      ...keywords.slice(0, 4),
+      ...(travel ? ["flight", "boarding", "itinerary", "ticket"] : []),
+    ]);
+    const query = `(${terms.join(" OR ")}) newer_than:${travel ? "120d" : "30d"}`;
+    jobs.push(
+      runTool("list_gmail_messages", {
+        query,
+        maxResults: travel ? 6 : 5,
+      }).then((r) => ({ kind: "gmail-list", ...r, q: query }))
+    );
+  }
+
+  const settled = await Promise.all(jobs);
+
+  let gmailListRaw: string | null = null;
+  for (const item of settled) {
+    toolsCalled.push({ name: item.name, ok: item.ok });
+    if (item.kind === "calendar") {
+      parts.push(`CALENDAR_EVENTS:\n${item.raw}`);
       try {
-        const parsed = JSON.parse(searched) as { events?: unknown[] };
+        const parsed = JSON.parse(item.raw) as { events?: unknown[] };
         calendarHitCount += parsed.events?.length || 0;
+      } catch {
+        /* ignore */
+      }
+    }
+    if (item.kind === "gmail-list") {
+      gmailListRaw = item.raw;
+      parts.push(`GMAIL_SEARCH${item.q ? ` (${item.q})` : ""}:\n${item.raw}`);
+      try {
+        const parsed = JSON.parse(item.raw) as { messages?: unknown[] };
+        gmailHitCount += parsed.messages?.length || 0;
       } catch {
         /* ignore */
       }
     }
   }
 
-  if (opts.gmailConnected) {
-    const terms = [
-      ...keywords.slice(0, 5),
-      "flight",
-      "boarding",
-      "itinerary",
-      "ticket",
-      "booking",
-      "train",
-      "hotel",
-    ];
-    const unique = [...new Set(terms.map((t) => t.trim()).filter(Boolean))];
-    const query = `(${unique.join(" OR ")}) newer_than:180d`;
-    const listed = await executeGoogleTool("list_gmail_messages", {
-      query,
-      maxResults: 12,
-    });
-    toolsCalled.push({ name: "list_gmail_messages", ok: toolResultOk(listed) });
-    parts.push(`GMAIL_SEARCH (query=${query}):\n${listed}`);
-
+  // At most 2 full email reads, and only for travel (snippets usually enough otherwise).
+  if (travel && gmailListRaw) {
     try {
-      const parsed = JSON.parse(listed) as {
-        messages?: Array<{ id?: string; snippet?: string }>;
+      const parsed = JSON.parse(gmailListRaw) as {
+        messages?: Array<{ id?: string }>;
       };
-      const msgs = parsed.messages || [];
-      gmailHitCount += msgs.length;
-      for (const m of msgs.slice(0, 4)) {
-        if (!m.id) continue;
-        const full = await executeGoogleTool("read_gmail_message", {
-          messageId: m.id,
-        });
-        toolsCalled.push({
-          name: "read_gmail_message",
-          ok: toolResultOk(full),
-        });
-        parts.push(`GMAIL_MESSAGE ${m.id}:\n${full}`);
+      const ids = (parsed.messages || []).map((m) => m.id).filter(Boolean).slice(0, 2) as string[];
+      if (ids.length) {
+        const reads = await Promise.all(
+          ids.map((id) =>
+            runTool("read_gmail_message", { messageId: id }).then((r) => ({
+              id,
+              ...r,
+            }))
+          )
+        );
+        for (const read of reads) {
+          toolsCalled.push({ name: read.name, ok: read.ok });
+          parts.push(`GMAIL_MESSAGE ${read.id}:\n${read.raw}`);
+        }
       }
     } catch {
       /* ignore */
@@ -204,4 +220,14 @@ If nothing relevant appears below after these lookups, then say you checked Cale
 ${parts.join("\n\n")}`;
 
   return { block, toolsCalled, calendarHitCount, gmailHitCount };
+}
+
+function unique(values: string[]): string[] {
+  const out: string[] = [];
+  for (const v of values) {
+    const t = v.trim();
+    if (!t) continue;
+    if (!out.some((x) => x.toLowerCase() === t.toLowerCase())) out.push(t);
+  }
+  return out;
 }
