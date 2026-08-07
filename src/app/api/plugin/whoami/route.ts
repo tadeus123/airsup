@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { logActivitySafe, newRequestId } from "@/lib/activity";
 import { authPeerFromRequest } from "@/lib/peers";
 
 export const runtime = "nodejs";
@@ -19,8 +20,20 @@ export async function OPTIONS() {
 }
 
 export async function GET(request: Request) {
+  const started = Date.now();
+  const requestId = newRequestId();
   try {
     const peer = await authPeerFromRequest(request);
+    logActivitySafe({
+      kind: "whoami",
+      ok: true,
+      handle: peer.handle,
+      httpStatus: 200,
+      durationMs: Date.now() - started,
+      summary: `whoami ${peer.handle}`,
+      detail: { domain: peer.domain },
+      requestId,
+    });
     return cors(
       NextResponse.json({
         handle: peer.handle,
@@ -32,6 +45,15 @@ export async function GET(request: Request) {
   } catch (error) {
     const message = error instanceof Error ? error.message : "whoami_failed";
     const status = message === "Unauthorized" ? 401 : 500;
+    logActivitySafe({
+      kind: "whoami",
+      ok: false,
+      httpStatus: status,
+      durationMs: Date.now() - started,
+      summary: `whoami failed: ${message}`,
+      detail: { error: message },
+      requestId,
+    });
     return cors(NextResponse.json({ error: message }, { status }));
   }
 }

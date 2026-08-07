@@ -9,4 +9,3 @@ node_modules
 .airsup-db-token.tmp
 
 .env.new
-.env.local

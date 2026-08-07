@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { logActivitySafe, newRequestId } from "@/lib/activity";
 import {
   authPeerFromRequest,
   markDelivered,
@@ -107,63 +108,106 @@ function toEvents(messages: PeerMessage[]) {
 }
 
 async function runWatch(request: Request, input: WatchInput) {
-  const me = await authPeerFromRequest(request);
-  const now = Date.now();
+  const requestId = newRequestId();
+  const routeStarted = Date.now();
+  let handle = "";
+  try {
+    const me = await authPeerFromRequest(request);
+    handle = me.handle;
+    const now = Date.now();
 
-  let windowUntil: number;
-  if (!input.reset && input.watchUntil && input.watchUntil > now) {
-    windowUntil = input.watchUntil;
-  } else {
-    const seconds = input.windowSeconds ?? DEFAULT_WINDOW_SECONDS;
-    windowUntil = now + seconds * 1000;
-  }
+    let windowUntil: number;
+    if (!input.reset && input.watchUntil && input.watchUntil > now) {
+      windowUntil = input.watchUntil;
+    } else {
+      const seconds = input.windowSeconds ?? DEFAULT_WINDOW_SECONDS;
+      windowUntil = now + seconds * 1000;
+    }
 
-  const startedAt = Date.now();
-  const remainingAtStart = Math.max(0, windowUntil - startedAt);
-  const holdMs = Math.min(input.waitSeconds * 1000, remainingAtStart);
-  const deadline = startedAt + holdMs;
+    const startedAt = Date.now();
+    const remainingAtStart = Math.max(0, windowUntil - startedAt);
+    const holdMs = Math.min(input.waitSeconds * 1000, remainingAtStart);
+    const deadline = startedAt + holdMs;
 
-  let messages = await readInboxAfter(me.handle, input.cursor);
-  while (messages.length === 0 && Date.now() < deadline) {
-    await sleep(Math.min(POLL_INTERVAL_MS, Math.max(0, deadline - Date.now())));
-    messages = await readInboxAfter(me.handle, input.cursor);
-  }
+    let messages = await readInboxAfter(me.handle, input.cursor);
+    while (messages.length === 0 && Date.now() < deadline) {
+      await sleep(Math.min(POLL_INTERVAL_MS, Math.max(0, deadline - Date.now())));
+      messages = await readInboxAfter(me.handle, input.cursor);
+    }
 
-  if (messages.length) {
-    await markDelivered(
-      me.handle,
-      messages.map((m) => m.id)
+    if (messages.length) {
+      await markDelivered(
+        me.handle,
+        messages.map((m) => m.id)
+      );
+    }
+
+    const end = Date.now();
+    const nextCursor =
+      messages.length > 0
+        ? Math.max(...messages.map((m) => m.id))
+        : input.cursor;
+    const remainingMs = Math.max(0, windowUntil - end);
+    const continueWatching = remainingMs > 0;
+    const events = toEvents(messages);
+
+    logActivitySafe({
+      kind: "watch",
+      ok: true,
+      handle,
+      peerHandle: messages[0]?.fromHandle || "",
+      httpStatus: 200,
+      durationMs: end - routeStarted,
+      summary:
+        messages.length > 0
+          ? `${handle} watch delivered ${messages.length} event(s)`
+          : `${handle} watch no_event (waited ${Math.round((end - startedAt) / 1000)}s)`,
+      detail: {
+        cursorIn: input.cursor,
+        cursorOut: nextCursor,
+        eventCount: messages.length,
+        eventIds: messages.map((m) => m.id),
+        nextAction: continueWatching ? "watch" : "finish",
+        remainingSeconds: Math.round(remainingMs / 1000),
+        waitSeconds: input.waitSeconds,
+      },
+      requestId,
+    });
+
+    return cors(
+      NextResponse.json({
+        server_time: new Date(end).toISOString(),
+        server_epoch_ms: end,
+        handle: me.handle,
+        cursor: String(nextCursor),
+        events,
+        event_count: events.length,
+        no_event: events.length === 0,
+        continue: continueWatching,
+        next_action: continueWatching ? "watch" : "finish",
+        remaining_seconds: Math.round(remainingMs / 1000),
+        watch_until: new Date(windowUntil).toISOString(),
+        waited_seconds: Math.round((end - startedAt) / 1000),
+        instructions: continueWatching
+          ? "Handle any events above, then call watch_endpoint again with the returned cursor AND watch_until. Do NOT stop because no_event is true. Loop until next_action is finish."
+          : "Monitoring window over. Handle any final events, then finish the scheduled run.",
+      })
     );
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "watch_failed";
+    const status = message === "Unauthorized" ? 401 : 500;
+    logActivitySafe({
+      kind: "watch",
+      ok: false,
+      handle,
+      httpStatus: status,
+      durationMs: Date.now() - routeStarted,
+      summary: `watch failed: ${message}`,
+      detail: { error: message, cursor: input.cursor },
+      requestId,
+    });
+    return cors(NextResponse.json({ error: message }, { status }));
   }
-
-  const end = Date.now();
-  const nextCursor =
-    messages.length > 0
-      ? Math.max(...messages.map((m) => m.id))
-      : input.cursor;
-  const remainingMs = Math.max(0, windowUntil - end);
-  const continueWatching = remainingMs > 0;
-  const events = toEvents(messages);
-
-  return cors(
-    NextResponse.json({
-      server_time: new Date(end).toISOString(),
-      server_epoch_ms: end,
-      handle: me.handle,
-      cursor: String(nextCursor),
-      events,
-      event_count: events.length,
-      no_event: events.length === 0,
-      continue: continueWatching,
-      next_action: continueWatching ? "watch" : "finish",
-      remaining_seconds: Math.round(remainingMs / 1000),
-      watch_until: new Date(windowUntil).toISOString(),
-      waited_seconds: Math.round((end - startedAt) / 1000),
-      instructions: continueWatching
-        ? "Handle any events above, then call watch_endpoint again with the returned cursor AND watch_until. Do NOT stop because no_event is true. Loop until next_action is finish."
-        : "Monitoring window over. Handle any final events, then finish the scheduled run.",
-    })
-  );
 }
 
 export async function OPTIONS() {
@@ -171,25 +215,13 @@ export async function OPTIONS() {
 }
 
 export async function GET(request: Request) {
-  try {
-    return await runWatch(request, parseGet(new URL(request.url)));
-  } catch (error) {
-    const message = error instanceof Error ? error.message : "watch_failed";
-    const status = message === "Unauthorized" ? 401 : 500;
-    return cors(NextResponse.json({ error: message }, { status }));
-  }
+  return await runWatch(request, parseGet(new URL(request.url)));
 }
 
 export async function POST(request: Request) {
-  try {
-    const body = (await request.json().catch(() => ({}))) as Record<
-      string,
-      unknown
-    >;
-    return await runWatch(request, parseBody(body));
-  } catch (error) {
-    const message = error instanceof Error ? error.message : "watch_failed";
-    const status = message === "Unauthorized" ? 401 : 500;
-    return cors(NextResponse.json({ error: message }, { status }));
-  }
+  const body = (await request.json().catch(() => ({}))) as Record<
+    string,
+    unknown
+  >;
+  return await runWatch(request, parseBody(body));
 }

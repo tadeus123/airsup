@@ -4,12 +4,15 @@ import {
   pluginSetupInstructions,
   scheduledWorkerPrompt,
 } from "@/lib/chatgpt-onboarding";
+import { logActivitySafe, newRequestId } from "@/lib/activity";
 import { handleFromDomain, normalizeDomain, registerPeer } from "@/lib/peers";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 export async function POST(request: Request) {
+  const started = Date.now();
+  const requestId = newRequestId();
   try {
     const body = (await request.json().catch(() => ({}))) as {
       websiteDomain?: string;
@@ -18,6 +21,14 @@ export async function POST(request: Request) {
     };
     const domain = normalizeDomain(body.websiteDomain || "");
     if (!domain) {
+      logActivitySafe({
+        kind: "onboard",
+        ok: false,
+        httpStatus: 400,
+        durationMs: Date.now() - started,
+        summary: "onboard rejected: missing domain",
+        requestId,
+      });
       return NextResponse.json(
         { error: "Website domain is required" },
         { status: 400 }
@@ -41,6 +52,20 @@ export async function POST(request: Request) {
       token,
       peer,
     });
+    logActivitySafe({
+      kind: "onboard",
+      ok: true,
+      handle: peer.handle,
+      httpStatus: 200,
+      durationMs: Date.now() - started,
+      summary: `registered ${peer.handle} for ${peer.domain}`,
+      detail: {
+        domain: peer.domain,
+        pluginUrl: plugin.openapiUrl,
+        chatgptUrlHost: "chatgpt.com",
+      },
+      requestId,
+    });
     return NextResponse.json({
       ok: true,
       handle: peer.handle,
@@ -53,9 +78,16 @@ export async function POST(request: Request) {
       plugin,
     });
   } catch (error) {
-    return NextResponse.json(
-      { error: error instanceof Error ? error.message : "onboard_failed" },
-      { status: 400 }
-    );
+    const message = error instanceof Error ? error.message : "onboard_failed";
+    logActivitySafe({
+      kind: "onboard",
+      ok: false,
+      httpStatus: 400,
+      durationMs: Date.now() - started,
+      summary: `onboard failed: ${message}`,
+      detail: { error: message },
+      requestId,
+    });
+    return NextResponse.json({ error: message }, { status: 400 });
   }
 }

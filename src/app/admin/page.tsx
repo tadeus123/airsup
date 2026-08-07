@@ -41,10 +41,33 @@ type ToolTrace = {
   provider?: string;
 };
 
+type ActivityEvent = {
+  id: number;
+  createdAt: string;
+  kind: string;
+  ok: boolean;
+  handle: string;
+  peerHandle: string;
+  httpStatus: number;
+  durationMs: number;
+  summary: string;
+  detail: Record<string, unknown>;
+  requestId: string;
+};
+
 function fmt(iso: string) {
   if (!iso) return "";
   try {
     return new Date(iso).toLocaleString();
+  } catch {
+    return iso;
+  }
+}
+
+function fmtTime(iso: string) {
+  if (!iso) return "";
+  try {
+    return new Date(iso).toLocaleTimeString();
   } catch {
     return iso;
   }
@@ -55,15 +78,17 @@ export default function AdminPage() {
   const [savedPassword, setSavedPassword] = useState("");
   const [data, setData] = useState<AdminPayload | null>(null);
   const [traces, setTraces] = useState<ToolTrace[]>([]);
+  const [activity, setActivity] = useState<ActivityEvent[]>([]);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  const [lastPoll, setLastPoll] = useState("");
 
   const load = useCallback(async (pwd: string) => {
     if (!pwd) return;
     setBusy(true);
     setError("");
     try {
-      const [convRes, toolsRes] = await Promise.all([
+      const [convRes, toolsRes, actRes] = await Promise.all([
         fetch("/api/admin/conversations", {
           headers: { "x-admin-password": pwd },
           cache: "no-store",
@@ -72,18 +97,34 @@ export default function AdminPage() {
           headers: { "x-admin-password": pwd },
           cache: "no-store",
         }),
+        fetch("/api/admin/activity?limit=150", {
+          headers: { "x-admin-password": pwd },
+          cache: "no-store",
+        }),
       ]);
       const json = (await convRes.json()) as AdminPayload;
-      const toolsJson = (await toolsRes.json()) as { traces?: ToolTrace[]; error?: string };
+      const toolsJson = (await toolsRes.json()) as {
+        traces?: ToolTrace[];
+        error?: string;
+      };
+      const actJson = (await actRes.json()) as {
+        events?: ActivityEvent[];
+        error?: string;
+        serverTime?: string;
+      };
       if (!convRes.ok) throw new Error(json.error || "Failed to load");
       if (!toolsRes.ok) throw new Error(toolsJson.error || "Failed to load tool traces");
+      if (!actRes.ok) throw new Error(actJson.error || "Failed to load activity");
       setData(json);
       setTraces(toolsJson.traces || []);
+      setActivity(actJson.events || []);
+      setLastPoll(actJson.serverTime || new Date().toISOString());
       setSavedPassword(pwd);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
       setData(null);
       setTraces([]);
+      setActivity([]);
     } finally {
       setBusy(false);
     }
@@ -93,7 +134,7 @@ export default function AdminPage() {
     if (!savedPassword) return;
     const id = setInterval(() => {
       void load(savedPassword);
-    }, 8000);
+    }, 3000);
     return () => clearInterval(id);
   }, [savedPassword, load]);
 
@@ -102,7 +143,10 @@ export default function AdminPage() {
       <header className="admin-header">
         <div>
           <h1>Airsup admin</h1>
-          <p>Live conversations + tool-use traces</p>
+          <p>
+            Live activity · auto-refresh 3s
+            {lastPoll ? ` · last ${fmtTime(lastPoll)}` : ""}
+          </p>
         </div>
         {savedPassword ? (
           <button type="button" disabled={busy} onClick={() => void load(savedPassword)}>
@@ -137,6 +181,40 @@ export default function AdminPage() {
       ) : null}
 
       {error ? <p className="admin-error">{error}</p> : null}
+
+      {savedPassword ? (
+        <section className="admin-activity">
+          <h2>Live activity</h2>
+          <p className="admin-hint">
+            Onboard, ChatGPT plugin calls (watch / talk / ack / lookup), and failures — so we can see
+            what happened while you test.
+          </p>
+          {activity.length === 0 ? (
+            <p className="admin-empty">No activity yet. Start onboarding or call a plugin tool.</p>
+          ) : (
+            <ul className="admin-activity-list">
+              {activity.map((e) => (
+                <li key={e.id} className={e.ok ? "ok" : "miss"}>
+                  <div className="admin-activity-top">
+                    <strong>{e.ok ? "ok" : "fail"}</strong>
+                    <span className="tag">{e.kind}</span>
+                    <span>{fmtTime(e.createdAt)}</span>
+                    {e.handle ? <code>{e.handle}</code> : null}
+                    {e.peerHandle ? <code>→ {e.peerHandle}</code> : null}
+                    {e.durationMs ? <span>{e.durationMs}ms</span> : null}
+                  </div>
+                  <div className="admin-activity-summary">{e.summary}</div>
+                  {e.detail && Object.keys(e.detail).length > 0 ? (
+                    <pre className="admin-activity-detail">
+                      {JSON.stringify(e.detail, null, 2)}
+                    </pre>
+                  ) : null}
+                </li>
+              ))}
+            </ul>
+          )}
+        </section>
+      ) : null}
 
       {data ? (
         <>
