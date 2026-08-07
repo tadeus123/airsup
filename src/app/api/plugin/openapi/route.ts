@@ -6,7 +6,7 @@ export const dynamic = "force-dynamic";
 /** OpenAPI 3.0 schema for ChatGPT Custom GPT Actions import. */
 export async function GET(request: Request) {
   const origin = new URL(request.url).origin;
-  const yaml = `openapi: 3.0.3
+  const yaml = `openapi: 3.1.0
 info:
   title: Airsup
   description: Talk to another person's Supi and long-poll your Airsup inbox.
@@ -94,8 +94,9 @@ components:
         status:
           type: string
         replyToId:
-          type: integer
-          nullable: true
+          type:
+            - integer
+            - "null"
         createdAt:
           type: string
     TalkResponse:
@@ -148,8 +149,9 @@ components:
         conversationId:
           type: string
         replyToId:
-          type: integer
-          nullable: true
+          type:
+            - integer
+            - "null"
         status:
           type: string
         instruction:
