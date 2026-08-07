@@ -1,5 +1,5 @@
 {
-  "name": "airsup",
+  "name": "@web-native-agent/airsup",
   "version": "1.0.0",
   "private": true,
   "scripts": {

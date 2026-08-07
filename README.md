@@ -1,64 +1,70 @@
-# Airsup (online connector)
-
-Lives in this monorepo at `apps/airsup`.
-
-Online setup for **Airsup** — domain + AI API key (OpenAI, Anthropic, Google, Groq, OpenRouter, xAI, or any OpenAI-compatible key) → install prompt (Cursor / Codex / Claude Code) → Supi on your site.
-
-- **Airsup** = the product / connector
-- **Supi** = the on-site agent
-
-Deployed from https://github.com/tadeus123/airsup (Vercel). Keep this app folder in sync when changing the online connector.
-
-## How storage works
-
-Your domain + API key are saved in a dedicated **Supabase** project named `airsup`.
-
-Required Vercel env vars:
-
-```bash
-SUPABASE_URL=https://fbxrcnxgslihxzoxlwtg.supabase.co
-SUPABASE_ANON_KEY=your-anon-key
-AIRSUP_DB_TOKEN=your-db-token
-```
-
-## Local (from monorepo root)
-
-```bash
-pnpm install
-pnpm airsup
-```
-
-Or:
-
-```bash
-pnpm --filter @web-native-agent/airsup dev
-```
-
-## Public paths
-
-- `/.well-known/agent-card.json` (name: **Supi for …** when connected)
-- `/.well-known/agent.json`
-- `/agent`
-- `/agent/status.json`
-- `/agent/chat`
-- `/domain/setup` (website-owner Google Calendar / Gmail OAuth)
-- `/supi.svg`
-
-## Google Calendar + Gmail (website owner)
-
-1. Create a Google Cloud OAuth client (Web application).
-2. Add authorized redirect URI: `https://<your-airsup-host>/api/google/callback`
-3. Enable **Google Calendar API** and **Gmail API** on the project.
-4. Set on Vercel:
-
-```bash
-GOOGLE_CLIENT_ID=...
-GOOGLE_CLIENT_SECRET=...
-# optional override:
-# GOOGLE_OAUTH_REDIRECT_URI=https://<your-airsup-host>/api/google/callback
-```
-
-5. Enter an already-connected domain on the home page → `/domain/setup`.
-6. Click **Connect your Google Calendar** and/or **Connect Gmail** (separate OAuth consents).
-7. In **Goals / playbooks**, write freeform instructions (or click **Load podcast example**) and **Save**.
-8. Tokens + goals are stored per website owner. Supi follows playbooks and uses Calendar/Gmail tools when connected.
+# Airsup (online connector)
+
+Lives in this monorepo at `apps/airsup`.
+
+**Airsup** connects your website identity to **ChatGPT** so your Supi can stay awake on a schedule and talk to other people's Supi workers.
+
+- **Airsup** = the product / connector
+- **Supi** = your on-site / ChatGPT worker
+
+Deployed from https://github.com/tadeus123/airsup (Vercel). Keep this app folder in sync when changing the online connector.
+
+## Insanely simple onboarding
+
+1. **Enter your domain** → Airsup creates your handle (e.g. `kostis.com` → `kostis`)
+2. **Connect ChatGPT** → opens ChatGPT with the hourly 58‑minute Airsup scanner prompt prefilled
+3. **Plugin URL** → paste `https://<airsup-host>/plugin/openapi.yaml` into a ChatGPT GPT Action + paste your Bearer token
+
+Then you can say in ChatGPT: **talk to kostis' supi** (once they completed the same setup).
+
+## ChatGPT plugin tools
+
+| Tool | Purpose |
+|---|---|
+| `watch_endpoint` | Non-LLM long-poll (~20–25s) for inbox instructions |
+| `talk_to_supi` | Send a message to another handle |
+| `ack_instruction` | Mark an inbox message processed |
+| `lookup_supi` / `whoami` | Resolve handles |
+
+Peer messages are stored in the dedicated **Supabase** project `airsup`.
+
+Required Vercel env vars:
+
+```bash
+SUPABASE_URL=https://fbxrcnxgslihxzoxlwtg.supabase.co
+SUPABASE_ANON_KEY=your-anon-key
+AIRSUP_DB_TOKEN=your-db-token
+```
+
+## Local (from monorepo root)
+
+```bash
+pnpm install
+pnpm airsup
+```
+
+Or:
+
+```bash
+pnpm --filter @web-native-agent/airsup dev
+```
+
+Peer messaging proof (no ChatGPT UI):
+
+```bash
+cd apps/airsup
+pnpm exec tsx scripts/peer-e2e.ts
+```
+
+## Public paths
+
+- `/` — domain → Connect ChatGPT → plugin URL
+- `/plugin/openapi.yaml` — ChatGPT Actions schema
+- `/api/plugin/watch` · `/api/plugin/talk` · `/api/plugin/ack` · `/api/plugin/whoami` · `/api/plugin/lookup`
+- `/.well-known/agent-card.json` (name: **Supi for …** when connected)
+- `/agent/chat` · `/agent/watch` · `/domain/setup`
+
+## Google Calendar + Gmail (website owner)
+
+Still available at `/domain/setup` after a classic website connection. Optional for the ChatGPT peer-worker path.
+

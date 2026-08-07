@@ -2,7 +2,6 @@ import { NextResponse } from "next/server";
 import { getConnection, llmBackendForKey, publicOrigin } from "@/lib/connection";
 import { customerSiteUrl, shouldHideSupiOnSetupHost } from "@/lib/host";
 import { getKnowledgeMeta } from "@/lib/site-knowledge";
-import { watchBackend } from "@/lib/watch-queue";
 
 export const runtime = "nodejs";
 
@@ -59,14 +58,6 @@ export async function GET(request: Request) {
         }
       : null,
     chatUrl: `${origin}/agent/chat`,
-    watchUrl: `${origin}/agent/watch`,
-    watch: {
-      longPoll: true,
-      pushUrl: `${origin}/agent/watch/push`,
-      secured: Boolean(process.env.WATCH_SECRET),
-      backend: watchBackend(),
-      defaultWindowSeconds: 900,
-    },
     setupUrl: "/",
     updatedAt: connection.updatedAt || new Date().toISOString(),
   });
