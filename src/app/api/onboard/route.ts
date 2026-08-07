@@ -5,7 +5,12 @@ import {
   scheduledWorkerPrompt,
 } from "@/lib/chatgpt-onboarding";
 import { logActivitySafe, newRequestId } from "@/lib/activity";
-import { handleFromDomain, normalizeDomain, registerPeer } from "@/lib/peers";
+import {
+  handleFromDomain,
+  normalizeDomain,
+  normalizeHandle,
+  registerPeer,
+} from "@/lib/peers";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -20,23 +25,26 @@ export async function POST(request: Request) {
       displayName?: string;
     };
     const domain = normalizeDomain(body.websiteDomain || "");
-    if (!domain) {
+    const handle = normalizeHandle(
+      body.handle || (domain ? handleFromDomain(domain) : "")
+    );
+    if (!handle) {
       logActivitySafe({
         kind: "onboard",
         ok: false,
         httpStatus: 400,
         durationMs: Date.now() - started,
-        summary: "onboard rejected: missing domain",
+        summary: "onboard rejected: missing handle",
         requestId,
       });
       return NextResponse.json(
-        { error: "Website domain is required" },
+        { error: "Choose a handle (e.g. konstantin)" },
         { status: 400 }
       );
     }
     const { peer, token } = await registerPeer({
       domain,
-      handle: body.handle || handleFromDomain(domain),
+      handle,
       displayName: body.displayName,
     });
     const origin = new URL(request.url).origin;
@@ -58,9 +66,11 @@ export async function POST(request: Request) {
       handle: peer.handle,
       httpStatus: 200,
       durationMs: Date.now() - started,
-      summary: `registered ${peer.handle} for ${peer.domain}`,
+      summary: peer.domain
+        ? `registered ${peer.handle} for ${peer.domain}`
+        : `registered handle ${peer.handle}`,
       detail: {
-        domain: peer.domain,
+        domain: peer.domain || null,
         pluginUrl: plugin.openapiUrl,
         chatgptUrlHost: "chatgpt.com",
       },

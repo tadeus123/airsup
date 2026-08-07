@@ -130,14 +130,16 @@ function extractBearer(request: Request): string {
 }
 
 export async function registerPeer(input: {
-  domain: string;
+  domain?: string;
   handle?: string;
   displayName?: string;
 }): Promise<{ peer: Peer; token: string }> {
-  const domain = normalizeDomain(input.domain);
-  if (!domain) throw new Error("Website domain is required");
-  const handle = normalizeHandle(input.handle || handleFromDomain(domain));
+  const domain = normalizeDomain(input.domain || "");
+  const handle = normalizeHandle(
+    input.handle || (domain ? handleFromDomain(domain) : "")
+  );
   if (!handle) throw new Error("Handle is required");
+  if (handle.length < 2) throw new Error("Handle must be at least 2 characters");
   const displayName = (input.displayName || handle).trim();
   const minted = mintPeerToken();
 

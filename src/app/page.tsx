@@ -1,8 +1,8 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useState } from "react";
 
-type Step = "domain" | "chatgpt" | "plugin";
+type Step = "handle" | "chatgpt" | "plugin";
 
 type OnboardResult = {
   handle: string;
@@ -18,39 +18,34 @@ type OnboardResult = {
   };
 };
 
+function cleanHandle(raw: string) {
+  return raw
+    .trim()
+    .toLowerCase()
+    .replace(/^@+/, "")
+    .replace(/[^a-z0-9._-]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 40);
+}
+
 export default function SetupPage() {
-  const [step, setStep] = useState<Step>("domain");
-  const [websiteDomain, setWebsiteDomain] = useState("");
+  const [step, setStep] = useState<Step>("handle");
+  const [handle, setHandle] = useState("");
   const [result, setResult] = useState<OnboardResult | null>(null);
   const [busy, setBusy] = useState(false);
   const [copied, setCopied] = useState<"token" | "plugin" | "prompt" | "">("");
   const [error, setError] = useState("");
 
-  const handlePreview = useMemo(() => {
-    const host = websiteDomain
-      .trim()
-      .toLowerCase()
-      .replace(/^https?:\/\//, "")
-      .replace(/\/$/, "")
-      .replace(/^www\./, "");
-    return host.split(".")[0] || "";
-  }, [websiteDomain]);
-
-  async function onDomainSubmit() {
-    const domain = websiteDomain
-      .trim()
-      .toLowerCase()
-      .replace(/^https?:\/\//, "")
-      .replace(/\/$/, "")
-      .replace(/^www\./, "");
-    if (!domain) return;
+  async function onHandleSubmit() {
+    const h = cleanHandle(handle);
+    if (!h) return;
     setBusy(true);
     setError("");
     try {
       const res = await fetch("/api/onboard", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ websiteDomain: domain }),
+        body: JSON.stringify({ handle: h }),
       });
       const json = (await res.json()) as OnboardResult & { error?: string };
       if (!res.ok) throw new Error(json.error || "Setup failed");
@@ -70,32 +65,33 @@ export default function SetupPage() {
   }
 
   return (
-    <main className={`setup${step !== "domain" ? " setup-done" : ""}`}>
-      {step === "domain" ? (
+    <main className={`setup${step !== "handle" ? " setup-done" : ""}`}>
+      {step === "handle" ? (
         <>
-          <h1>Enter your domain.</h1>
+          <h1>Choose your handle.</h1>
           <p className="setup-sub">
-            {handlePreview
-              ? `Your Supi handle will be “${handlePreview}”. Others can say: talk to ${handlePreview}'s supi`
-              : "No API key needed — next you’ll connect ChatGPT."}
+            {cleanHandle(handle)
+              ? `Others will say: talk to ${cleanHandle(handle)}'s supi`
+              : "No website needed — connect your ChatGPT next."}
           </p>
           <form
             className="setup-form"
             onSubmit={(e) => {
               e.preventDefault();
-              void onDomainSubmit();
+              void onHandleSubmit();
             }}
           >
             <div className="setup-row">
               <input
                 type="text"
-                name="domain"
-                autoComplete="url"
-                placeholder="tademehl.com"
-                value={websiteDomain}
-                onChange={(e) => setWebsiteDomain(e.target.value)}
+                name="handle"
+                autoComplete="username"
+                placeholder="konstantin"
+                value={handle}
+                onChange={(e) => setHandle(e.target.value)}
                 autoFocus
                 required
+                minLength={2}
               />
               <button type="submit" disabled={busy}>
                 {busy ? "…" : "Enter"}
