@@ -105,8 +105,8 @@ export default function SetupPage() {
         <>
           <h1>Connect ChatGPT.</h1>
           <p className="setup-sub">
-            Opens ChatGPT with your hourly Airsup scanner prompt already filled in.
-            Create a Scheduled Task that runs every hour with that prompt.
+            Opens ChatGPT with a prompt that creates your hourly Airsup worker immediately
+            and starts the first run ASAP.
           </p>
           <p className="setup-sub">
             Handle: <strong>{result.handle}</strong>
@@ -132,7 +132,7 @@ export default function SetupPage() {
               className="setup-copy setup-copy-muted"
               onClick={() => setStep("plugin")}
             >
-              Next — plugin URL
+              Next — Actions setup
             </button>
           </div>
         </>
@@ -140,41 +140,55 @@ export default function SetupPage() {
 
       {step === "plugin" && result ? (
         <>
-          <h1>Add the Airsup plugin.</h1>
+          <h1>Add Airsup Actions.</h1>
           <p className="setup-sub">
-            In ChatGPT, create a GPT / Actions and import this OpenAPI URL. Use your
-            token as Bearer API key auth.
+            Do <strong>not</strong> use ChatGPT “New Plugin” / MCP / OAuth. Use a Custom GPT →
+            Actions instead.
           </p>
-          <label className="setup-label">Plugin URL</label>
+
+          <ol className="setup-steps">
+            <li>ChatGPT → create a GPT → Configure → Actions → Create new action</li>
+            <li>
+              Click <strong>Import from URL</strong> (not “Server URL”, not MCP)
+            </li>
+            <li>
+              Paste the schema URL below
+            </li>
+            <li>
+              Authentication: <strong>API Key</strong> (not OAuth)
+            </li>
+            <li>
+              Auth Type: <strong>Bearer</strong>
+            </li>
+            <li>Paste your API token into the API Key field</li>
+            <li>Save the GPT</li>
+          </ol>
+
+          <label className="setup-label">Import from URL (schema)</label>
           <textarea className="setup-prompt" readOnly value={result.pluginUrl} rows={2} />
           <button
             type="button"
             className="setup-copy"
             onClick={() => void copy("plugin", result.pluginUrl)}
           >
-            {copied === "plugin" ? "Copied" : "Copy plugin URL"}
+            {copied === "plugin" ? "Copied" : "Copy Import from URL"}
           </button>
 
-          <label className="setup-label">Your API token</label>
+          <label className="setup-label">API Key (Bearer token)</label>
           <textarea className="setup-prompt" readOnly value={result.token} rows={2} />
           <button
             type="button"
             className="setup-copy setup-copy-muted"
             onClick={() => void copy("token", result.token)}
           >
-            {copied === "token" ? "Copied" : "Copy token"}
+            {copied === "token" ? "Copied" : "Copy API Key / token"}
           </button>
 
-          <ol className="setup-steps">
-            {result.plugin.steps.map((s) => (
-              <li key={s}>{s}</li>
-            ))}
-          </ol>
-
           <p className="setup-sub">
-            Then say in ChatGPT: <strong>talk to someone&apos;s supi</strong> — once
-            they completed the same setup.
+            ChatGPT field names: <strong>Import from URL</strong> + <strong>API Key</strong> +{" "}
+            <strong>Bearer</strong>. Ignore Auth URL / Token URL / Client ID — those are OAuth-only.
           </p>
+
           <button
             type="button"
             className="setup-copy setup-copy-muted"

@@ -1,7 +1,7 @@
 import type { Peer } from "./peers";
 
-/** Hourly ChatGPT Scheduled Task prompt — keeps a run alive ~58 minutes via Airsup watch. */
-export function scheduledWorkerPrompt(input: {
+/** Worker instructions used INSIDE the Scheduled Task (no "how to create" waffle). */
+export function scheduledWorkerBody(input: {
   origin: string;
   handle: string;
   token: string;
@@ -10,112 +10,65 @@ export function scheduledWorkerPrompt(input: {
   return `You are a continuously operating Airsup worker for handle "${handle}".
 
 GOAL
-
-Stay active for approximately 58 minutes during every scheduled run and continuously scan Airsup for new instructions. This scheduled task itself runs once every hour.
+Stay active for approximately 58 minutes during every scheduled run and continuously scan Airsup for new instructions. This scheduled task runs once every hour.
 
 CREDENTIALS (keep private)
-
-- Your Airsup handle: ${handle}
-- Your plugin API token (Bearer): ${token}
-- Plugin OpenAPI URL: ${origin}/plugin/openapi.yaml
-- Watch tool: POST ${origin}/api/plugin/watch
-- Talk tool: POST ${origin}/api/plugin/talk
-- Ack tool: POST ${origin}/api/plugin/ack
+- Airsup handle: ${handle}
+- Bearer token: ${token}
+- OpenAPI / Actions schema URL: ${origin}/plugin/openapi.yaml
+- watch_endpoint: POST ${origin}/api/plugin/watch
+- talk_to_supi: POST ${origin}/api/plugin/talk
+- ack_instruction: POST ${origin}/api/plugin/ack
 
 Always send header: Authorization: Bearer ${token}
 
 At the beginning of every run:
+1. Record start time from Airsup server_time.
+2. Set watch_until = start_time + 58 minutes.
+3. Begin continuously calling watch_endpoint.
 
-1. Record the start time using the server time returned by Airsup.
-2. Set:
-   watch_until = start_time + 58 minutes
-3. Begin continuously checking Airsup for new instructions with watch_endpoint.
-
-MONITORING LOOP
-
-Repeat the following until server_time >= watch_until:
-
-1. Call watch_endpoint with wait_seconds between 20 and 25, and pass cursor + watch_until from the previous response.
-
-2. Prefer a long-poll / watch request that remains pending for approximately 20 to 25 seconds when no event exists.
-
-3. If Airsup returns no new instruction:
-
-   * Do NOT finish the scheduled task.
-   * Do NOT interpret an empty response as completion.
-   * Immediately continue the monitoring loop.
-   * Check Airsup again.
-
-4. If Airsup returns one or more instructions / peer messages:
-
-   * Read the complete instruction.
-   * Process it immediately.
-   * If it is a message from another person's Supi (fromHandle / body), draft a helpful reply as that person's agent and send it with talk_to_supi (to=fromHandle, conversation_id=same, reply_to_id=message id).
-   * Use any other available ChatGPT tools when required.
-   * Complete as much of the instruction as possible.
-   * Call ack_instruction for each processed message id.
-   * Then immediately return to monitoring Airsup.
-
-5. After every Airsup response, use Airsup's returned server_time / next_action / watch_until to determine whether the monitoring window has ended.
-
-6. Never estimate elapsed time yourself when Airsup provides server_time.
-
-7. Continue this loop even when there have been no events for a long period.
-
-8. Do not voluntarily end the run early simply because:
-
-   * there are no commands,
-   * Airsup returned "no_event",
-   * the inbox is empty,
-   * one instruction was completed,
-   * or there is currently nothing useful to do.
+MONITORING LOOP — repeat until next_action is "finish" OR server_time >= watch_until:
+1. Call watch_endpoint with wait_seconds 20-25, plus cursor and watch_until from the previous response.
+2. If no_event: do NOT finish. Immediately call watch_endpoint again.
+3. If events arrive: process them. For peer messages, reply with talk_to_supi (to=fromHandle, same conversation_id, reply_to_id=message id), then ack_instruction for each id, then resume watching.
+4. Trust Airsup server_time / remaining_seconds / watch_until. Never guess elapsed time.
+5. Do not end early because the inbox is empty.
 
 FAILURES
+On timeout/error/rate-limit: retry watch_endpoint. Keep going until watch_until.
 
-If an individual Airsup call fails or times out:
+ENDING
+Only finish when next_action is "finish" or server_time >= watch_until. Then end the run.`;
+}
 
-* Do not end the run.
-* Retry with another Airsup check.
-* Continue monitoring until watch_until is reached.
+/**
+ * Prefill prompt for Connect ChatGPT — must CREATE the schedule immediately, not explain how.
+ */
+export function scheduledWorkerPrompt(input: {
+  origin: string;
+  handle: string;
+  token: string;
+}): string {
+  const body = scheduledWorkerBody(input);
+  const { handle } = input;
+  return `Create a ChatGPT Scheduled Task RIGHT NOW. Do not explain. Do not ask clarifying questions.
 
-If a long-poll duration causes connector timeouts, reduce individual polling calls to approximately 20 to 25 seconds rather than abandoning the monitoring loop.
+Exact settings:
+- Name: Airsup Continuous Worker - ${handle}
+- Schedule: every hour
+- First run: as soon as possible (within the next few minutes)
+- Enabled: yes
+- Task instructions: use the EXACT block between BEGIN_INSTRUCTIONS and END_INSTRUCTIONS with zero changes.
 
-If Airsup temporarily rate-limits requests:
+After you create it, reply with only:
+1) task name
+2) schedule
+3) first run time
+4) confirmation that it is enabled
 
-* Reduce polling frequency enough to recover.
-* Then continue monitoring.
-* Do not end the scheduled run unless the 58-minute monitoring window has ended.
-
-STATE
-
-Avoid processing the same Airsup instruction twice.
-
-Use instruction IDs, cursors, timestamps, acknowledgements, or other Airsup state when available to distinguish new work from already completed work.
-
-Preserve unfinished work across the monitoring loop when possible.
-
-ENDING THE RUN
-
-Only finish when:
-
-next_action is "finish" OR server_time >= watch_until
-
-Before finishing:
-
-1. Process any instruction already received.
-2. Send any required result/status back through Airsup.
-3. Save or return the latest cursor/state when available.
-4. End the scheduled run.
-
-The next hourly scheduled execution will start a new monitoring window.
-
-IMPORTANT
-
-The primary objective of this task is not to perform one Airsup check.
-
-The primary objective is to KEEP THIS SCHEDULED RUN ACTIVE and continuously monitor Airsup for the entire approximately 58-minute monitoring window.
-
-After you confirm you understand, tell me how to create a ChatGPT Scheduled Task that runs every hour with these exact instructions.`;
+BEGIN_INSTRUCTIONS
+${body}
+END_INSTRUCTIONS`;
 }
 
 export function chatgptPrefillUrl(prompt: string): string {
@@ -140,11 +93,14 @@ export function pluginSetupInstructions(input: {
     token: input.token,
     handle: input.handle,
     steps: [
-      "Open ChatGPT → create a new GPT (or open GPT editor → Actions / plugin).",
-      `Import actions from this OpenAPI URL: ${input.origin}/plugin/openapi.yaml`,
-      `Authentication: API Key → Bearer → paste your token (starts with ${input.token.slice(0, 10)}…).`,
-      `In GPT instructions, say you are Supi for ${input.peer.displayName || input.handle} (handle: ${input.handle}). When the user says "talk to X's supi", call talk_to_supi.`,
-      "Save the GPT. Then create an hourly Scheduled Task using the Connect ChatGPT prompt.",
+      "WRONG place: ChatGPT “New Plugin” / MCP connector with OAuth. Close that.",
+      "RIGHT place: ChatGPT → create a GPT → Configure → Actions → Create new action.",
+      `In Actions, click “Import from URL” and paste: ${input.origin}/plugin/openapi.yaml`,
+      "Authentication dropdown: choose “API Key” (NOT OAuth).",
+      "Auth Type: Bearer.",
+      `API Key field: paste your full token starting with ${input.token.slice(0, 10)}…`,
+      `GPT instructions: You are Supi for ${input.peer.displayName || input.handle} (handle ${input.handle}). When asked to talk to someone's supi, call talk_to_supi.`,
+      "Save the GPT. Use this GPT (or its Actions) when chatting / in the scheduled worker.",
     ],
   };
 }
