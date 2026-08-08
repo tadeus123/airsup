@@ -150,7 +150,17 @@ export default function SetupPage() {
             <li>
               Authentication: <strong>None</strong>
             </li>
-            <li>Create → then continue to the hourly schedule</li>
+            <li>Create the plugin</li>
+            <li>
+              Open the plugin → <strong>Refresh</strong> tools → confirm{" "}
+              <strong>talk_to_supi</strong> is ON (not greyed out)
+            </li>
+            <li>
+              Start a <strong>new chat</strong> → Developer mode → enable Airsup
+            </li>
+            <li>
+              If ChatGPT asks to confirm a tool, choose <strong>Always allow</strong>
+            </li>
           </ol>
 
           <label className="setup-label">Server URL</label>

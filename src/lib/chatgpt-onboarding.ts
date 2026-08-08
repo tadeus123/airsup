@@ -168,9 +168,10 @@ export function pluginSetupInstructions(input: {
       `Server URL: ${mcpUrl}`,
       "Authentication: None (token is already in the Server URL).",
       "Check “I understand…” → create.",
-      "In a chat, enable Developer mode and select the Airsup plugin.",
-      "Create/update the hourly Scheduled Task with the Airsup worker instructions (plugin must be enabled for that task).",
-      `Then say: talk to konstantin's supi`,
+      "Open the plugin details → Refresh tools → ensure talk_to_supi is ON (not greyed out).",
+      "Start a NEW chat → enable Developer mode + Airsup. If asked to confirm a tool, Always allow.",
+      "Create/update the hourly Scheduled Task with the Airsup worker instructions.",
+      `Then say: talk to tade's supi`,
     ],
   };
 }

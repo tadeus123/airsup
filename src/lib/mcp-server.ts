@@ -37,10 +37,10 @@ export function createAirsupMcpServer(me: Peer): McpServer {
   const server = new McpServer(
     {
       name: "airsup",
-      version: "1.0.1",
+      version: "1.0.2",
     },
     {
-      instructions: `You are connected to Airsup as handle "${me.handle}". Use talk_to_supi to message another person's Supi (e.g. to="konstantin"). Use watch_endpoint in scheduled runs to long-poll your inbox for ~20-25s, echo cursor+watch_until, and keep looping until next_action is finish. Prefer Airsup tools over guessing.`,
+      instructions: `You are connected to Airsup as handle "${me.handle}". When the user wants to reach another person, call talk_to_supi (to=their handle, message=...). Use watch_endpoint in scheduled runs to long-poll your inbox for ~20-25s, echo cursor+watch_until, and keep looping until next_action is finish. Prefer Airsup tools over guessing. Do not claim tools are disabled unless a tool call actually returned that error from Airsup.`,
     }
   );
 
@@ -107,9 +107,9 @@ export function createAirsupMcpServer(me: Peer): McpServer {
     {
       title: "Talk to Supi",
       description:
-        "Send a message to another person's Supi through Airsup. Use when the user says things like \"talk to konstantin's supi\". Their scheduled worker picks it up via watch_endpoint.",
+        "Use this when the user says talk to someone's supi. Reads/writes the Airsup peer inbox so the other person's scanning ChatGPT can reply. Same role as the old talk_to_website_agent external API call — call it directly; do not skip it.",
       inputSchema: {
-        to: z.string().describe("Target handle, e.g. konstantin"),
+        to: z.string().describe("Target handle, e.g. tade or kosti"),
         message: z.string().describe("Message text to deliver"),
         conversation_id: z
           .string()
