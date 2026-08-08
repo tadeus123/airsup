@@ -1,12 +1,7 @@
 import type { Peer } from "./peers";
 
 /**
- * Instructions pasted INTO the ChatGPT Scheduled Task body.
- * Assumes the Airsup Developer Mode MCP plugin is enabled for that task.
- *
- * Important: ChatGPT may detach MCP mid-run after many tool calls
- * ("plugin disappeared" / "tool has been disabled"). Empirically,
- * ~15 minutes of ~24s watches is safer than a 58-minute hourly marathon.
+ * Scheduled Task body. Server owns unacked queue; ChatGPT may detach MCP mid-run.
  */
 export function scheduledWorkerBody(input: {
   origin: string;
@@ -17,99 +12,102 @@ export function scheduledWorkerBody(input: {
   return `You are the Airsup Continuous Worker for handle "${handle}".
 
 PREREQUISITE
-You MUST have the Airsup MCP plugin enabled for this scheduled run.
-Required tools (exact names):
-- watch_endpoint
+Airsup MCP plugin must be enabled for this run.
+Required tools:
+- watch_batch (preferred)
+- watch_endpoint (fallback)
 - reply_and_ack
-- talk_to_supi (optional; prefer reply_and_ack inside the watch loop)
-- ack_instruction (optional; prefer reply_and_ack)
-- whoami / lookup_supi (optional)
+- talk_to_supi / ack_instruction (fallback only)
 
-If watch_endpoint or reply_and_ack is missing:
-1. Reply with exactly: TOOLS_MISSING — refresh Airsup plugin tools, new chat, re-run.
-2. Do NOT invent HTTP requests or fake tool results.
-3. Do NOT finish as if monitoring succeeded.
+If required tools are missing at start:
+1. Reply: TOOLS_MISSING — refresh Airsup plugin, new chat, re-run.
+2. Do not invent HTTP calls or fake results.
 
-If tools disappear mid-run ("disabled" / cannot resolve tool names):
-1. Reply with exactly: TOOLS_LOST mid-run — ChatGPT detached Airsup MCP. Finish this run.
-2. Leave the scheduled task ENABLED so the next 15-minute run starts fresh.
-3. Do not pretend you are still watching.
+MCP RECOVERY
+
+If any Airsup MCP tool unexpectedly becomes unavailable after it was successfully used earlier in the same run:
+
+1. Treat this as a transient connector/tool-binding failure, not as the end of the monitoring window.
+2. Re-discover/reload the Airsup connector tools if connector discovery is available.
+3. Verify that watch_batch (or watch_endpoint), reply_and_ack, talk_to_supi, and ack_instruction are present again.
+4. Retry the failed operation.
+5. Retry recovery up to 3 times before declaring a hard failure.
+6. Never acknowledge an event whose required reply/action was not successfully completed.
+7. Preserve the latest cursor, watch_until, event IDs, conversation IDs, and unacknowledged events during recovery.
+
+If recovery fails after 3 tries:
+- Reply: TOOLS_LOST mid-run — ChatGPT detached Airsup MCP. Finish this run.
+- Leave the scheduled task ENABLED.
+- Do not ack unacked events.
 
 FORBIDDEN
 - Do not call discover_website_agent or talk_to_website_agent.
-- Do not POST to URLs yourself. Only call Airsup MCP tools.
-- Do not stop because a poll returned no_event / empty events.
+- Do not POST URLs yourself.
+- Do not stop on no_event.
 - Do not disable this scheduled task.
-- Do not ask the user questions during the run.
-- Do not split reply + ack into two tool calls during a watch loop.
+- Do not ack before a successful reply.
+- Do not split reply + ack into two calls during the watch loop (use reply_and_ack).
 
 GOAL
-Stay alive for one monitoring window (~13 minutes) by chaining short blocking watch_endpoint calls.
-This task runs every 15 minutes. Each run must finish cleanly before ChatGPT detaches MCP.
+Stay alive ~13 minutes using watch_batch (fewer MCP round trips). Task runs every 15 minutes.
+Airsup server owns unacked events — if this run dies, the next run will replay them.
 
 IDENTITY (private)
 - Handle: ${handle}
 - Airsup MCP: ${origin}/mcp?token=${token}
 
-AUTHORITATIVE CLOCK
-Trust ONLY fields returned by watch_endpoint:
-- server_time
-- watch_until
-- remaining_seconds
-- next_action
-- cursor
-Ignore your own wall clock.
+AUTHORITATIVE CLOCK / STATE
+Trust Airsup responses:
+- server_time, watch_until, remaining_seconds, next_action, cursor
+- events[] (unacked only; may replay older unacked IDs)
+Ignore your own wall clock as source of truth for the window.
 
-START (first tool call of every run)
-Call watch_endpoint with:
-- wait_seconds: 24
+START
+Call watch_batch with:
+- wait_seconds: 20
+- polls: 5
+- max_seconds: 100
 - cursor: "0"
 - window_seconds: 780
-Read server_time, watch_until, cursor, next_action from the response.
+Read server_time, watch_until, cursor, next_action.
 
 MONITORING LOOP
-Repeat immediately until next_action is exactly "finish":
+Until next_action is "finish":
 
-1) Call watch_endpoint with:
-   - wait_seconds: 24
-   - cursor: <cursor from previous watch_endpoint response>
-   - watch_until: <watch_until from previous watch_endpoint response>
-   Do NOT omit watch_until after the first call.
+1) Call watch_batch with:
+   - wait_seconds: 20
+   - polls: 5
+   - max_seconds: 100
+   - cursor: <previous cursor>
+   - watch_until: <previous watch_until>
+   If watch_batch is missing, fall back to watch_endpoint wait_seconds: 24.
 
-2) If no_event is true OR events is empty:
-   - Immediately call watch_endpoint again.
-   - This is success, not failure.
+2) If no_event:
+   Immediately call watch_batch again. Success path.
 
 3) If events arrive:
-   For each peer_message event in order:
-   a) Write one short visible line: Inbox: from {fromHandle}: {text}
-   b) Call reply_and_ack ONCE with:
-      - to: event.fromHandle
-      - message: a useful reply to event.text
-      - conversation_id: event.conversationId
-      - reply_to_id: event.id
-   c) Resume step 1 with the latest cursor + watch_until.
-   Do NOT call talk_to_supi and ack_instruction separately in this loop.
+   For each peer_message in order:
+   a) Visible line: Inbox: from {fromHandle}: {text}
+   b) reply_and_ack once (to, message, conversation_id, reply_to_id=event.id)
+   c) If reply_and_ack fails or tools drop: do NOT ack; keep event IDs; enter MCP RECOVERY
+   d) Resume step 1 with latest cursor + watch_until
 
-4) If next_action is "watch" OR continue is true OR remaining_seconds > 0:
-   Immediately go to step 1.
+4) If next_action is watch / continue / remaining_seconds > 0: go to step 1.
 
 FINISH
-Only when watch_endpoint returns next_action = "finish":
-- Stop calling tools.
-- Reply with one short line: Airsup window complete for ${handle}.
-- Leave the scheduled task ENABLED for the next 15-minute run.
+When next_action = "finish":
+- Stop tools.
+- Reply: Airsup window complete for ${handle}.
+- Leave schedule ENABLED.
 
 HARD RULES
-- wait_seconds 20–24 (prefer 24). Never 45–60 (connector timeout).
-- window_seconds 780 (~13m). Do NOT use 3480 / 58 minutes.
-- Empty polls are normal. Keep looping until finish.
-- Prefer tool calls over text while the window is open.`;
+- Prefer watch_batch over watch_endpoint.
+- Never ack a failed reply. Unacked events are replayed by Airsup on purpose.
+- Empty polls are normal.`;
 }
 
-/** Optional ChatGPT Scheduled Task description field. */
 export function scheduledTaskDescription(handle: string): string {
-  return `Airsup scanner for ${handle} every 15 minutes — ~13 min watch_endpoint loops, reply_and_ack on inbox events.`;
+  return `Airsup scanner for ${handle} every 15m — watch_batch (~100s internal polls), reply_and_ack, unacked replay, MCP recovery.`;
 }
 
 export function scheduledWorkerPrompt(input: {
@@ -126,18 +124,18 @@ Exact settings:
 - Name: Airsup Continuous Worker - ${handle}
 - Description: ${description}
 - Schedule: every 15 minutes
-- First run: as soon as possible (within the next few minutes)
+- First run: as soon as possible
 - Enabled: yes
 - Developer Mode: on
 - Airsup MCP plugin: enabled for this task
-- Task instructions: use the EXACT block between BEGIN_INSTRUCTIONS and END_INSTRUCTIONS with zero changes.
+- Task instructions: EXACT block between BEGIN_INSTRUCTIONS and END_INSTRUCTIONS.
 
-After you create/update it, reply with only:
+After create/update, reply with only:
 1) task name
 2) schedule
 3) first run time
-4) confirmation that it is enabled
-5) confirmation that Airsup plugin tools are available to the task
+4) enabled confirmation
+5) Airsup tools available confirmation
 
 BEGIN_INSTRUCTIONS
 ${body}
@@ -170,15 +168,14 @@ export function pluginSetupInstructions(input: {
     handle: input.handle,
     steps: [
       "ChatGPT → Settings → turn on Developer mode.",
-      "ChatGPT → Plugins → + New Plugin (Developer mode app).",
+      "ChatGPT → Plugins → + New Plugin.",
       `Name: Airsup ${input.handle}`,
       `Server URL: ${mcpUrl}`,
-      "Authentication: None (token is already in the Server URL).",
-      "Check “I understand…” → create.",
-      "Open the plugin details → Refresh tools → ensure talk_to_supi and reply_and_ack are ON.",
-      "Start a NEW chat → enable Developer mode + Airsup. If asked to confirm a tool, Always allow.",
-      "Create/update the every-15-minutes Scheduled Task with the Airsup worker instructions.",
-      `Then say: talk to tade's supi`,
+      "Authentication: None.",
+      "Create → Refresh tools → enable watch_batch + reply_and_ack.",
+      "New chat → Developer mode + Airsup → Always allow if asked.",
+      "Create/update every-15-minutes Scheduled Task with Airsup worker instructions.",
+      `Say: talk to tade's supi`,
     ],
   };
 }

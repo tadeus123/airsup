@@ -287,7 +287,7 @@ export async function sendPeerMessage(input: {
 
 export async function readInboxAfter(
   handle: string,
-  afterId: number
+  _afterId: number
 ): Promise<PeerMessage[]> {
   const h = normalizeHandle(handle);
   const cfg = supabaseConfig();
@@ -296,7 +296,8 @@ export async function readInboxAfter(
       (await supabaseRpc<PeerMessage[]>("airsup_peer_inbox_after", {
         p_token: cfg.token,
         p_handle: h,
-        p_after_id: afterId,
+        // Compat arg; server returns all unacked regardless of cursor.
+        p_after_id: 0,
       })) || [];
     return rows.map((row) => ({
       id: Number(row.id),
@@ -309,7 +310,11 @@ export async function readInboxAfter(
       createdAt: row.createdAt,
     }));
   }
-  return memory.messages.filter((m) => m.toHandle === h && m.id > afterId);
+  return memory.messages.filter(
+    (m) =>
+      m.toHandle === h &&
+      (m.status === "pending" || m.status === "delivered")
+  );
 }
 
 export async function markDelivered(handle: string, ids: number[]): Promise<void> {

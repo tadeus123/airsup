@@ -1,4 +1,4 @@
--- Multi-peer ChatGPT worker identities + inbox
+-- Multi-peer ChatGPT worker identities + inbox (restart-safe unacked queue)
 
 create table if not exists public.airsup_peers (
   handle text primary key,
@@ -35,12 +35,10 @@ create table if not exists public.airsup_peer_messages (
 create index if not exists airsup_peer_messages_inbox_idx
   on public.airsup_peer_messages (to_handle, id);
 
+create index if not exists airsup_peer_messages_unacked_idx
+  on public.airsup_peer_messages (to_handle, status, id);
+
 create index if not exists airsup_peer_messages_conversation_idx
   on public.airsup_peer_messages (conversation_id, id);
 
 alter table public.airsup_peer_messages enable row level security;
-
-alter table public.airsup_messages drop constraint if exists airsup_messages_role_check;
-alter table public.airsup_messages
-  add constraint airsup_messages_role_check
-  check (role = any (array['user'::text, 'assistant'::text, 'system'::text, 'event'::text]));
