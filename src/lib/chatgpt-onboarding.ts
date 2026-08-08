@@ -100,6 +100,11 @@ HARD RULES
 - Prefer tool calls over text. Minimize narration while the window is open.`;
 }
 
+/** Optional ChatGPT Scheduled Task description field. */
+export function scheduledTaskDescription(handle: string): string {
+  return `Hourly Airsup scanner for ${handle} — keeps ChatGPT alive ~58 min via watch_endpoint and delivers peer Supi messages.`;
+}
+
 export function scheduledWorkerPrompt(input: {
   origin: string;
   handle: string;
@@ -107,10 +112,12 @@ export function scheduledWorkerPrompt(input: {
 }): string {
   const body = scheduledWorkerBody(input);
   const { handle } = input;
+  const description = scheduledTaskDescription(handle);
   return `Create or update a ChatGPT Scheduled Task RIGHT NOW. Do not explain. Do not ask clarifying questions.
 
 Exact settings:
 - Name: Airsup Continuous Worker - ${handle}
+- Description: ${description}
 - Schedule: every hour
 - First run: as soon as possible (within the next few minutes)
 - Enabled: yes

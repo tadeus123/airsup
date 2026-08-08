@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import {
   chatgptPrefillUrl,
   pluginSetupInstructions,
+  scheduledTaskDescription,
   scheduledWorkerPrompt,
 } from "@/lib/chatgpt-onboarding";
 import { logActivitySafe, newRequestId } from "@/lib/activity";
@@ -53,6 +54,7 @@ export async function POST(request: Request) {
       handle: peer.handle,
       token,
     });
+    const scheduleDescription = scheduledTaskDescription(peer.handle);
     const chatgptUrl = chatgptPrefillUrl(schedulePrompt);
     const plugin = pluginSetupInstructions({
       origin,
@@ -84,6 +86,8 @@ export async function POST(request: Request) {
       token,
       chatgptUrl,
       schedulePrompt,
+      scheduleDescription,
+      scheduleName: `Airsup Continuous Worker - ${peer.handle}`,
       pluginUrl: plugin.mcpUrl,
       mcpUrl: plugin.mcpUrl,
       openapiUrl: plugin.openapiUrl,

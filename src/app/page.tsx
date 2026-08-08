@@ -11,6 +11,8 @@ type OnboardResult = {
   token: string;
   chatgptUrl: string;
   schedulePrompt: string;
+  scheduleDescription?: string;
+  scheduleName?: string;
   pluginUrl: string;
   mcpUrl?: string;
   plugin: {
@@ -30,12 +32,20 @@ function cleanHandle(raw: string) {
     .slice(0, 40);
 }
 
+function taskInstructionsOnly(schedulePrompt: string) {
+  return schedulePrompt
+    .replace(/^[\s\S]*BEGIN_INSTRUCTIONS\n/, "")
+    .replace(/\nEND_INSTRUCTIONS[\s\S]*$/, "");
+}
+
 export default function SetupPage() {
   const [step, setStep] = useState<Step>("handle");
   const [handle, setHandle] = useState("");
   const [result, setResult] = useState<OnboardResult | null>(null);
   const [busy, setBusy] = useState(false);
-  const [copied, setCopied] = useState<"token" | "plugin" | "prompt" | "">("");
+  const [copied, setCopied] = useState<
+    "plugin" | "prompt" | "instructions" | "description" | "name" | ""
+  >("");
   const [error, setError] = useState("");
 
   async function onHandleSubmit() {
@@ -60,13 +70,24 @@ export default function SetupPage() {
     }
   }
 
-  async function copy(kind: "token" | "plugin" | "prompt", value: string) {
+  async function copy(
+    kind: "plugin" | "prompt" | "instructions" | "description" | "name",
+    value: string
+  ) {
     await navigator.clipboard.writeText(value);
     setCopied(kind);
     setTimeout(() => setCopied(""), 1500);
   }
 
   const mcpUrl = result?.mcpUrl || result?.plugin?.mcpUrl || result?.pluginUrl || "";
+  const scheduleName =
+    result?.scheduleName ||
+    (result ? `Airsup Continuous Worker - ${result.handle}` : "");
+  const scheduleDescription =
+    result?.scheduleDescription ||
+    (result
+      ? `Hourly Airsup scanner for ${result.handle} — keeps ChatGPT alive ~58 min via watch_endpoint and delivers peer Supi messages.`
+      : "");
 
   return (
     <main className={`setup${step !== "handle" ? " setup-done" : ""}`}>
@@ -162,6 +183,40 @@ export default function SetupPage() {
             next_action=finish (~58 minutes). Empty polls must not stop the run.
             Enable the Airsup plugin for this task.
           </p>
+
+          <label className="setup-label">Name</label>
+          <textarea className="setup-prompt" readOnly value={scheduleName} rows={2} />
+          <button
+            type="button"
+            className="setup-copy setup-copy-muted"
+            onClick={() => void copy("name", scheduleName)}
+          >
+            {copied === "name" ? "Copied" : "Copy name"}
+          </button>
+
+          <label className="setup-label">Description (optional)</label>
+          <textarea
+            className="setup-prompt"
+            readOnly
+            value={scheduleDescription}
+            rows={3}
+          />
+          <button
+            type="button"
+            className="setup-copy"
+            onClick={() => void copy("description", scheduleDescription)}
+          >
+            {copied === "description" ? "Copied" : "Copy description"}
+          </button>
+
+          <label className="setup-label">Task instructions</label>
+          <textarea
+            className="setup-prompt"
+            readOnly
+            value={taskInstructionsOnly(result.schedulePrompt)}
+            rows={8}
+          />
+
           <div className="setup-actions">
             <a
               className="setup-copy"
@@ -174,16 +229,21 @@ export default function SetupPage() {
             <button
               type="button"
               className="setup-copy setup-copy-muted"
-              onClick={() => void copy("prompt", result.schedulePrompt)}
+              onClick={() =>
+                void copy(
+                  "instructions",
+                  taskInstructionsOnly(result.schedulePrompt)
+                )
+              }
             >
-              {copied === "prompt" ? "Copied prompt" : "Copy schedule prompt"}
+              {copied === "instructions" ? "Copied" : "Copy task instructions"}
             </button>
             <button
               type="button"
               className="setup-copy setup-copy-muted"
-              onClick={() => void copy("prompt", result.schedulePrompt.replace(/^[\s\S]*BEGIN_INSTRUCTIONS\n/, "").replace(/\nEND_INSTRUCTIONS[\s\S]*$/, ""))}
+              onClick={() => void copy("prompt", result.schedulePrompt)}
             >
-              {copied === "prompt" ? "Copied" : "Copy task instructions only"}
+              {copied === "prompt" ? "Copied prompt" : "Copy full setup prompt"}
             </button>
             <button
               type="button"
