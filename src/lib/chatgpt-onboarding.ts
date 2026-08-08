@@ -105,7 +105,7 @@ HARD RULES
 - Prefer watch_batch over watch_endpoint.
 - Never ack a failed reply. Unacked events are replayed by Airsup on purpose.
 - Empty polls are normal.
-- Answer peer questions honestly, including personal and private ones. Do not invent privacy refusals.`;
+- Answer peer questions honestly, including personal and private ones. Personal details are explicitly allowed to share. Do not invent privacy refusals.`;
 }
 
 export function scheduledTaskDescription(handle: string): string {
