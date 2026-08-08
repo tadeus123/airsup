@@ -31,10 +31,21 @@ export function createAirsupMcpServer(me: Peer): McpServer {
   const server = new McpServer(
     {
       name: "airsup",
-      version: "1.1.0",
+      version: "1.2.0",
     },
     {
-      instructions: `You are connected to Airsup as handle "${me.handle}". Prefer watch_batch in scheduled runs (fewer ChatGPT↔MCP round trips). On inbox events use reply_and_ack only after you can reply; never ack a failed reply. Unacked events are replayed by the server until ack. If MCP tools vanish mid-run, follow MCP RECOVERY in the worker instructions.`,
+      instructions: `You are connected to Airsup as handle "${me.handle}".
+
+CONVERSATIONS (normal chat — critical)
+When the user asks you to talk to someone's Supi (e.g. "talk to tade's supi"):
+1. Call talk_to_supi with their request.
+2. Do NOT stop after sending. Immediately call await_supi_reply with the returned conversation_id and from=peer handle.
+3. When a reply arrives: show it to the user, continue the negotiation with talk_to_supi (same conversation_id), then await_supi_reply again.
+4. Keep this send→wait→reply loop going until the user's goal is actually finished (agreement reached, booking confirmed, question fully answered, or user explicitly says stop).
+5. Only then ack inbox events and summarize. Never end after a single outbound message.
+
+SCANNER RUNS
+Prefer watch_batch. On inbox events use reply_and_ack after a successful reply. Unacked events replay until ack.`,
     }
   );
 
@@ -105,11 +116,14 @@ export function createAirsupMcpServer(me: Peer): McpServer {
     {
       title: "Talk to Supi",
       description:
-        "Use from a normal chat when the user says talk to someone's supi. Inside a watch loop prefer reply_and_ack.",
+        "Send a message to another person's Supi. After a successful send in a user conversation, you MUST call await_supi_reply next and keep the dialogue going until the user's goal is fully done — do not stop after one message.",
       inputSchema: {
         to: z.string().describe("Target handle, e.g. tade or kosti"),
         message: z.string().describe("Message text to deliver"),
-        conversation_id: z.string().optional(),
+        conversation_id: z
+          .string()
+          .optional()
+          .describe("Reuse for the same thread"),
         reply_to_id: z.number().optional(),
       },
       annotations: chatgptPlusSafe,
@@ -165,7 +179,67 @@ export function createAirsupMcpServer(me: Peer): McpServer {
       return jsonText({
         ok: true,
         message: msg,
-        hint: "Peer worker will see this on the next watch_batch / watch_endpoint while its window is active.",
+        next_action: "await_supi_reply",
+        conversation_id: msg.conversationId,
+        peer_handle: peer.handle,
+        instructions: `Message delivered to ${peer.handle}. Do NOT finish. Immediately call await_supi_reply(from="${peer.handle}", conversation_id="${msg.conversationId}"). When they reply, continue talking with talk_to_supi using the same conversation_id until the user's goal is fully agreed/done.`,
+      });
+    }
+  );
+
+  server.registerTool(
+    "await_supi_reply",
+    {
+      title: "Await Supi reply",
+      description:
+        "After talk_to_supi, wait for that peer's reply in the same conversation. Keep calling this (and talk_to_supi) until the user's goal is finished. Do not stop after one outbound message.",
+      inputSchema: {
+        from: z
+          .string()
+          .describe("Peer handle you are waiting on, e.g. tade"),
+        conversation_id: z
+          .string()
+          .describe("conversation_id from talk_to_supi"),
+        wait_seconds: z
+          .number()
+          .optional()
+          .describe("Internal poll slice seconds (default 20)"),
+        polls: z.number().optional().describe("Internal slices (default 5)"),
+        max_seconds: z
+          .number()
+          .optional()
+          .describe("Max wait this call (default 100)"),
+        cursor: z.string().optional(),
+        watch_until: z.string().optional(),
+      },
+      annotations: chatgptPlusSafe,
+      _meta: noauthMeta,
+    },
+    async (args) => {
+      const from = normalizeHandle(
+        args.from.replace(/'s\s+supi$/i, "").replace(/\s+supi$/i, "")
+      );
+      const result = await runPeerWatch(
+        me,
+        {
+          waitSeconds: args.wait_seconds ?? 20,
+          polls: args.polls ?? 5,
+          maxSeconds: args.max_seconds ?? 100,
+          cursor: args.cursor,
+          watchUntil: args.watch_until,
+          windowSeconds: 900,
+          fromHandle: from,
+          conversationId: args.conversation_id,
+        },
+        { batch: true, mode: "conversation" }
+      );
+      return jsonText({
+        ...result,
+        next_action: result.event_count
+          ? "continue_conversation"
+          : "await_supi_reply",
+        peer_handle: from,
+        conversation_id: args.conversation_id,
       });
     }
   );

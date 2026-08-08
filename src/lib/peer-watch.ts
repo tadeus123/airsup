@@ -16,6 +16,10 @@ export type WatchArgs = {
   polls?: number;
   /** watch_batch: hard cap across all slices */
   maxSeconds?: number;
+  /** Only return events from this handle (conversation wait) */
+  fromHandle?: string;
+  /** Only return events in this conversation */
+  conversationId?: string;
 };
 
 export type PeerWatchEvent = {
@@ -82,6 +86,22 @@ function toEvents(messages: PeerMessage[]): PeerWatchEvent[] {
   }));
 }
 
+function filterMessages(
+  messages: PeerMessage[],
+  args: WatchArgs
+): PeerMessage[] {
+  let out = messages;
+  if (args.fromHandle) {
+    const fh = args.fromHandle.trim().toLowerCase();
+    out = out.filter((m) => m.fromHandle === fh);
+  }
+  if (args.conversationId) {
+    const cid = args.conversationId.trim();
+    out = out.filter((m) => m.conversationId === cid);
+  }
+  return out;
+}
+
 /**
  * Long-poll inbox. Server is source of truth for unacked events:
  * readInboxAfter returns pending+delivered until ack, so crashes/replays are safe.
@@ -89,11 +109,12 @@ function toEvents(messages: PeerMessage[]): PeerWatchEvent[] {
 export async function runPeerWatch(
   me: Peer,
   args: WatchArgs,
-  opts?: { batch?: boolean }
+  opts?: { batch?: boolean; mode?: "scanner" | "conversation" }
 ): Promise<PeerWatchResult> {
   const started = Date.now();
   const requestId = newRequestId();
   const batch = Boolean(opts?.batch);
+  const conversationMode = opts?.mode === "conversation";
   const waitSeconds = clamp(
     Number(args.waitSeconds ?? DEFAULT_WAIT),
     0,
@@ -140,8 +161,7 @@ export async function runPeerWatch(
     pollsCompleted = i + 1;
     if (Date.now() >= hardDeadline || Date.now() >= windowUntil) break;
 
-    // Unacked inbox is server-owned; cursor is only a client hint.
-    messages = await readInboxAfter(me.handle, 0);
+    messages = filterMessages(await readInboxAfter(me.handle, 0), args);
     if (messages.length > 0) break;
 
     const sliceMs = Math.min(
@@ -154,7 +174,7 @@ export async function runPeerWatch(
     const sliceDeadline = Date.now() + sliceMs;
     while (Date.now() < sliceDeadline) {
       await sleep(Math.min(500, Math.max(0, sliceDeadline - Date.now())));
-      messages = await readInboxAfter(me.handle, 0);
+      messages = filterMessages(await readInboxAfter(me.handle, 0), args);
       if (messages.length > 0) break;
     }
     if (messages.length > 0) break;
@@ -183,7 +203,7 @@ export async function runPeerWatch(
     kind: "watch",
     ok: true,
     handle: me.handle,
-    peerHandle: messages[0]?.fromHandle || "",
+    peerHandle: messages[0]?.fromHandle || args.fromHandle || "",
     httpStatus: 200,
     durationMs: end - started,
     summary:
@@ -192,6 +212,7 @@ export async function runPeerWatch(
         : `${me.handle} ${batch ? "watch_batch" : "watch"} no_event`,
     detail: {
       batch,
+      conversationMode,
       cursorIn,
       cursorOut: nextCursor,
       eventCount: messages.length,
@@ -199,9 +220,19 @@ export async function runPeerWatch(
       maxSeconds,
       nextAction: continueWatching ? "watch" : "finish",
       unackedReplay,
+      fromHandle: args.fromHandle || null,
+      conversationId: args.conversationId || null,
     },
     requestId,
   });
+
+  const continueHint = conversationMode
+    ? events.length
+      ? "Peer replied. Continue the conversation with talk_to_supi (same conversation_id) until the user's goal is fully agreed/done. Then ack_instruction. Do NOT stop after one exchange."
+      : "Still waiting for peer reply. Immediately call await_supi_reply / watch_batch again. Do not end the conversation yet."
+    : events.length
+      ? "Handle each event with reply_and_ack only after a successful reply intent. Never ack a failed reply. Then call watch_batch/watch_endpoint again with cursor AND watch_until."
+      : "no_event is normal. Immediately call watch_batch (or watch_endpoint) again with cursor AND watch_until.";
 
   return {
     server_time: new Date(end).toISOString(),
@@ -220,9 +251,9 @@ export async function runPeerWatch(
     polls_completed: pollsCompleted,
     unacked_replay: unackedReplay,
     instructions: continueWatching
-      ? events.length
-        ? "Handle each event with reply_and_ack only after a successful reply intent. Never ack a failed reply. Then call watch_batch/watch_endpoint again with cursor AND watch_until."
-        : "no_event is normal. Immediately call watch_batch (or watch_endpoint) again with cursor AND watch_until."
-      : "Monitoring window over. Finish this run; leave the schedule enabled.",
+      ? continueHint
+      : conversationMode
+        ? "Wait window ended without a reply. Tell the user the peer did not answer in time; offer to keep waiting with another await_supi_reply."
+        : "Monitoring window over. Finish this run; leave the schedule enabled.",
   };
 }
