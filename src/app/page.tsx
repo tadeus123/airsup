@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 
-type Step = "handle" | "chatgpt" | "plugin";
+type Step = "handle" | "plugin" | "schedule";
 
 type OnboardResult = {
   handle: string;
@@ -52,7 +52,7 @@ export default function SetupPage() {
       const json = (await res.json()) as OnboardResult & { error?: string };
       if (!res.ok) throw new Error(json.error || "Setup failed");
       setResult(json);
-      setStep("chatgpt");
+      setStep("plugin");
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
@@ -105,47 +105,15 @@ export default function SetupPage() {
         </>
       ) : null}
 
-      {step === "chatgpt" && result ? (
-        <>
-          <h1>Connect ChatGPT.</h1>
-          <p className="setup-sub">
-            Creates your hourly Airsup worker scheduled task immediately.
-          </p>
-          <p className="setup-sub">
-            Handle: <strong>{result.handle}</strong>
-          </p>
-          <div className="setup-actions">
-            <a
-              className="setup-copy"
-              href={result.chatgptUrl}
-              target="_blank"
-              rel="noreferrer"
-            >
-              Connect ChatGPT
-            </a>
-            <button
-              type="button"
-              className="setup-copy setup-copy-muted"
-              onClick={() => void copy("prompt", result.schedulePrompt)}
-            >
-              {copied === "prompt" ? "Copied prompt" : "Copy prompt instead"}
-            </button>
-            <button
-              type="button"
-              className="setup-copy setup-copy-muted"
-              onClick={() => setStep("plugin")}
-            >
-              Next — add plugin
-            </button>
-          </div>
-        </>
-      ) : null}
-
       {step === "plugin" && result ? (
         <>
           <h1>Add the Airsup plugin.</h1>
           <p className="setup-sub">
-            This is a ChatGPT <strong>Developer Mode plugin</strong> (MCP), not a Custom GPT.
+            Developer Mode MCP plugin first. Without it, the hourly task has no
+            watch_endpoint / talk_to_supi tools and will die in ~1 minute.
+          </p>
+          <p className="setup-sub">
+            Handle: <strong>{result.handle}</strong>
           </p>
 
           <ol className="setup-steps">
@@ -157,15 +125,14 @@ export default function SetupPage() {
             <li>
               Connection: <strong>Server URL</strong>
             </li>
-            <li>Paste the Server URL below (token is already included)</li>
+            <li>Paste the Server URL below (token included)</li>
             <li>
-              Authentication: <strong>None</strong> (not OAuth)
+              Authentication: <strong>None</strong>
             </li>
-            <li>Check “I understand…” → create</li>
-            <li>In chat: Developer mode → enable Airsup plugin → say talk to konstantin&apos;s supi</li>
+            <li>Create → then continue to the hourly schedule</li>
           </ol>
 
-          <label className="setup-label">Server URL (paste into New Plugin)</label>
+          <label className="setup-label">Server URL</label>
           <textarea className="setup-prompt" readOnly value={mcpUrl} rows={3} />
           <button
             type="button"
@@ -175,18 +142,57 @@ export default function SetupPage() {
             {copied === "plugin" ? "Copied" : "Copy Server URL"}
           </button>
 
-          <p className="setup-sub">
-            Do not use OAuth / Client ID / Auth URL. Auth = <strong>None</strong>, because your
-            token is in the Server URL.
-          </p>
+          <div className="setup-actions">
+            <button
+              type="button"
+              className="setup-copy"
+              onClick={() => setStep("schedule")}
+            >
+              Next — create hourly worker
+            </button>
+          </div>
+        </>
+      ) : null}
 
-          <button
-            type="button"
-            className="setup-copy setup-copy-muted"
-            onClick={() => setStep("chatgpt")}
-          >
-            Back
-          </button>
+      {step === "schedule" && result ? (
+        <>
+          <h1>Create the hourly worker.</h1>
+          <p className="setup-sub">
+            Schedule: every hour. Each run must loop watch_endpoint (~25s) until
+            next_action=finish (~58 minutes). Empty polls must not stop the run.
+            Enable the Airsup plugin for this task.
+          </p>
+          <div className="setup-actions">
+            <a
+              className="setup-copy"
+              href={result.chatgptUrl}
+              target="_blank"
+              rel="noreferrer"
+            >
+              Open ChatGPT with schedule prompt
+            </a>
+            <button
+              type="button"
+              className="setup-copy setup-copy-muted"
+              onClick={() => void copy("prompt", result.schedulePrompt)}
+            >
+              {copied === "prompt" ? "Copied prompt" : "Copy schedule prompt"}
+            </button>
+            <button
+              type="button"
+              className="setup-copy setup-copy-muted"
+              onClick={() => void copy("prompt", result.schedulePrompt.replace(/^[\s\S]*BEGIN_INSTRUCTIONS\n/, "").replace(/\nEND_INSTRUCTIONS[\s\S]*$/, ""))}
+            >
+              {copied === "prompt" ? "Copied" : "Copy task instructions only"}
+            </button>
+            <button
+              type="button"
+              className="setup-copy setup-copy-muted"
+              onClick={() => setStep("plugin")}
+            >
+              Back
+            </button>
+          </div>
         </>
       ) : null}
 
