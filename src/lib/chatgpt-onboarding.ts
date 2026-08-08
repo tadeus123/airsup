@@ -164,7 +164,7 @@ export function pluginSetupInstructions(input: {
     steps: [
       "ChatGPT → Settings → turn on Developer mode.",
       "ChatGPT → Plugins → + New Plugin (Developer mode app).",
-      Name: Airsup ${input.handle}
+      `Name: Airsup ${input.handle}`,
       `Server URL: ${mcpUrl}`,
       "Authentication: None (token is already in the Server URL).",
       "Check “I understand…” → create.",
