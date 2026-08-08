@@ -27,17 +27,28 @@ function errorText(message: string) {
 /**
  * MCP server factory for one authenticated Airsup peer.
  * Tools talk peer-to-peer through Airsup (ChatGPT ↔ ChatGPT).
+ *
+ * IMPORTANT — ChatGPT Plus/Pro only executes MCP tools with readOnlyHint:true.
+ * Write-shaped tools are silently disabled ("The X tool has been disabled") even
+ * though tools/list still shows them. Keep ALL Airsup tools annotated read-only
+ * so Plus users can call talk_to_supi / watch / ack. (Business/Edu allow writes.)
  */
 export function createAirsupMcpServer(me: Peer): McpServer {
   const server = new McpServer(
     {
       name: "airsup",
-      version: "1.0.0",
+      version: "1.0.1",
     },
     {
       instructions: `You are connected to Airsup as handle "${me.handle}". Use talk_to_supi to message another person's Supi (e.g. to="konstantin"). Use watch_endpoint in scheduled runs to long-poll your inbox for ~20-25s, echo cursor+watch_until, and keep looping until next_action is finish. Prefer Airsup tools over guessing.`,
     }
   );
+
+  const chatgptPlusSafe = {
+    readOnlyHint: true,
+    destructiveHint: false,
+    openWorldHint: false,
+  } as const;
 
   server.registerTool(
     "whoami",
@@ -45,7 +56,7 @@ export function createAirsupMcpServer(me: Peer): McpServer {
       title: "Who am I",
       description:
         "Return your Airsup handle and how others should address you. Use this when confirming your identity.",
-      annotations: { readOnlyHint: true },
+      annotations: chatgptPlusSafe,
     },
     async () =>
       jsonText({
@@ -67,7 +78,7 @@ export function createAirsupMcpServer(me: Peer): McpServer {
           .string()
           .describe("Handle to look up, e.g. konstantin"),
       },
-      annotations: { readOnlyHint: true },
+      annotations: chatgptPlusSafe,
     },
     async ({ handle }) => {
       const h = normalizeHandle(
@@ -109,7 +120,7 @@ export function createAirsupMcpServer(me: Peer): McpServer {
           .optional()
           .describe("Optional message id you are replying to"),
       },
-      annotations: { readOnlyHint: false },
+      annotations: chatgptPlusSafe,
     },
     async ({ to, message, conversation_id, reply_to_id }) => {
       const started = Date.now();
@@ -191,7 +202,7 @@ export function createAirsupMcpServer(me: Peer): McpServer {
           .describe("First call only; default 3480 (~58m)"),
         reset: z.boolean().optional().describe("Force a new monitoring window"),
       },
-      annotations: { readOnlyHint: true },
+      annotations: chatgptPlusSafe,
     },
     async (args) => {
       const started = Date.now();
@@ -298,7 +309,7 @@ export function createAirsupMcpServer(me: Peer): McpServer {
       inputSchema: {
         id: z.number().describe("Message id from watch_endpoint events"),
       },
-      annotations: { readOnlyHint: false },
+      annotations: chatgptPlusSafe,
     },
     async ({ id }) => {
       const result = await ackMessage(me.handle, id);

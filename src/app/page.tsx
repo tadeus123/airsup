@@ -141,7 +141,7 @@ export default function SetupPage() {
             <li>ChatGPT → Settings → enable <strong>Developer mode</strong></li>
             <li>ChatGPT → Plugins → <strong>+ New Plugin</strong></li>
             <li>
-              Name: <strong>Airsup - {result.handle}</strong>
+              Name: <strong>Airsup {result.handle}</strong>
             </li>
             <li>
               Connection: <strong>Server URL</strong>
