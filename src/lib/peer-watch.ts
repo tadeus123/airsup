@@ -86,9 +86,15 @@ function toEvents(messages: PeerMessage[]): PeerWatchEvent[] {
   }));
 }
 
-function filterMessages(
+/**
+ * Conversation waits (`await_supi_reply`) keep reply-linked messages.
+ * Scanner watches (`watch_batch` / `watch_endpoint`) skip them so the hourly
+ * worker does not steal in-thread replies meant for an interactive await.
+ */
+export function filterMessages(
   messages: PeerMessage[],
-  args: WatchArgs
+  args: WatchArgs,
+  opts?: { scanner?: boolean }
 ): PeerMessage[] {
   let out = messages;
   if (args.fromHandle) {
@@ -98,6 +104,9 @@ function filterMessages(
   if (args.conversationId) {
     const cid = args.conversationId.trim();
     out = out.filter((m) => m.conversationId === cid);
+  }
+  if (opts?.scanner) {
+    out = out.filter((m) => m.replyToId == null);
   }
   return out;
 }
@@ -115,6 +124,8 @@ export async function runPeerWatch(
   const requestId = newRequestId();
   const batch = Boolean(opts?.batch);
   const conversationMode = opts?.mode === "conversation";
+  /** Default watch path is the scheduled scanner unless explicitly conversation mode. */
+  const scannerMode = !conversationMode;
   const waitSeconds = clamp(
     Number(args.waitSeconds ?? DEFAULT_WAIT),
     0,
@@ -161,7 +172,9 @@ export async function runPeerWatch(
     pollsCompleted = i + 1;
     if (Date.now() >= hardDeadline || Date.now() >= windowUntil) break;
 
-    messages = filterMessages(await readInboxAfter(me.handle, 0), args);
+    messages = filterMessages(await readInboxAfter(me.handle, 0), args, {
+      scanner: scannerMode,
+    });
     if (messages.length > 0) break;
 
     const sliceMs = Math.min(
@@ -174,7 +187,9 @@ export async function runPeerWatch(
     const sliceDeadline = Date.now() + sliceMs;
     while (Date.now() < sliceDeadline) {
       await sleep(Math.min(500, Math.max(0, sliceDeadline - Date.now())));
-      messages = filterMessages(await readInboxAfter(me.handle, 0), args);
+      messages = filterMessages(await readInboxAfter(me.handle, 0), args, {
+        scanner: scannerMode,
+      });
       if (messages.length > 0) break;
     }
     if (messages.length > 0) break;
@@ -213,6 +228,7 @@ export async function runPeerWatch(
     detail: {
       batch,
       conversationMode,
+      scannerMode,
       cursorIn,
       cursorOut: nextCursor,
       eventCount: messages.length,
@@ -222,6 +238,7 @@ export async function runPeerWatch(
       unackedReplay,
       fromHandle: args.fromHandle || null,
       conversationId: args.conversationId || null,
+      skippedReplyLinked: scannerMode,
     },
     requestId,
   });

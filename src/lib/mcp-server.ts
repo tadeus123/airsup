@@ -351,7 +351,7 @@ Prefer watch_batch. On inbox events reply honestly with reply_and_ack — person
     {
       title: "Watch inbox",
       description:
-        "Single long-poll (~20-24s). Prefer watch_batch in scheduled workers to reduce ChatGPT MCP call volume. Unacked events are always replayed until ack.",
+        "Single long-poll (~20-24s). Prefer watch_batch in scheduled workers to reduce ChatGPT MCP call volume. Unacked events are always replayed until ack. Skips reply-linked inbox items (reply_to_id set); use await_supi_reply for those.",
       inputSchema: {
         wait_seconds: z.number().optional().describe("Hold seconds (20-24)"),
         cursor: z.string().optional().describe("Client progress hint"),
@@ -382,7 +382,7 @@ Prefer watch_batch. On inbox events reply honestly with reply_and_ack — person
     {
       title: "Watch batch",
       description:
-        "Preferred scheduled-worker watch. Airsup runs multiple internal polls in ONE MCP call (default polls=5, wait_seconds=20, max_seconds=100) and returns immediately if an unacked event appears. Cuts ChatGPT↔MCP round trips ~5× vs watch_endpoint.",
+        "Preferred scheduled-worker watch. Airsup runs multiple internal polls in ONE MCP call (default polls=5, wait_seconds=20, max_seconds=100) and returns immediately if an unacked event appears. Cuts ChatGPT↔MCP round trips ~5× vs watch_endpoint. Skips reply-linked inbox items (reply_to_id set) so interactive await_supi_reply owns in-thread replies.",
       inputSchema: {
         cursor: z.string().optional().describe("Client progress hint"),
         watch_until: z.string().optional().describe("Echo previous watch_until"),
