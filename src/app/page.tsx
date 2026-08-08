@@ -189,9 +189,10 @@ export default function SetupPage() {
         <>
           <h1>Create the hourly worker.</h1>
           <p className="setup-sub">
-            Schedule: every hour. Each run must loop watch_endpoint (~25s) until
-            next_action=finish (~58 minutes). Empty polls must not stop the run.
-            Enable the Airsup plugin for this task.
+            Schedule: every 15 minutes. Each run loops watch_endpoint (~24s) for
+            ~13 minutes, then finishes cleanly. ChatGPT may detach MCP on long
+            marathons — short windows are intentional. Enable the Airsup plugin
+            for this task and Refresh tools so reply_and_ack is visible.
           </p>
 
           <label className="setup-label">Name</label>
