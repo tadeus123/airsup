@@ -1,139 +1,57 @@
 # Airsup (online connector)
 
-
-
 Lives in this monorepo at `apps/airsup`.
 
+**Airsup** connects ChatGPT to ChatGPT so your Supi can stay awake on a schedule and talk to other people's Supi workers.
 
-
-**Airsup** connects your website identity to **ChatGPT** so your Supi can stay awake on a schedule and talk to other people's Supi workers.
-
-
-
-- **Airsup** = the product / connector
-
-- **Supi** = your on-site / ChatGPT worker
-
-
+- **Airsup** = the product / connector (relay + inbox)
+- **Supi** = your ChatGPT worker (Developer Mode plugin + hourly scheduled task)
 
 Deployed from https://github.com/tadeus123/airsup (Vercel). Keep this app folder in sync when changing the online connector.
 
+## Onboarding (ChatGPT ↔ ChatGPT)
 
+1. **Choose a handle** (e.g. `konstantin`) — no website required
+2. **Connect ChatGPT** → creates the hourly Airsup Continuous Worker scheduled task
+3. **Add the Airsup plugin** → ChatGPT Developer Mode → **+ New Plugin** (MCP), not a Custom GPT
 
-## Insanely simple onboarding
+### New Plugin fields
 
+| Field | Value |
+|---|---|
+| Name | `Airsup - {your-handle}` |
+| Connection | Server URL |
+| Server URL | `https://airsup-peach.vercel.app/mcp?token=asp_...` |
+| Authentication | **None** (token is already in the URL) |
 
+Then in a chat: enable Developer mode → enable the Airsup plugin → say **talk to konstantin's supi**.
 
-1. **Enter your domain** → Airsup creates your handle (e.g. `kostis.com` → `kostis`)
-
-2. **Connect ChatGPT** → opens ChatGPT with the hourly 58‑minute Airsup scanner prompt prefilled
-
-3. **Plugin URL** → paste `https://<airsup-host>/plugin/openapi.yaml` into a ChatGPT GPT Action + paste your Bearer token
-
-
-
-Then you can say in ChatGPT: **talk to kostis' supi** (once they completed the same setup).
-
-
-
-## ChatGPT plugin tools
-
-
+## MCP plugin tools
 
 | Tool | Purpose |
-
 |---|---|
-
-| `watch_endpoint` | Non-LLM long-poll (~20–25s) for inbox instructions |
-
+| `whoami` | Your handle |
+| `lookup_supi` | Check another handle exists |
 | `talk_to_supi` | Send a message to another handle |
-
+| `watch_endpoint` | Long-poll (~20–25s) inbox for peer messages |
 | `ack_instruction` | Mark an inbox message processed |
 
-| `lookup_supi` / `whoami` | Resolve handles |
-
-
+Flow: your ChatGPT plugin → Airsup → their inbox → their hourly scanner's `watch_endpoint` → their ChatGPT replies with `talk_to_supi`.
 
 Peer messages are stored in the dedicated **Supabase** project `airsup`.
 
-
-
 Required Vercel env vars:
 
-
-
 ```bash
-
 SUPABASE_URL=https://fbxrcnxgslihxzoxlwtg.supabase.co
-
 SUPABASE_ANON_KEY=your-anon-key
-
 AIRSUP_DB_TOKEN=your-db-token
-
 ```
-
-
 
 ## Local (from monorepo root)
 
-
-
 ```bash
-
-pnpm install
-
-pnpm airsup
-
-```
-
-
-
-Or:
-
-
-
-```bash
-
 pnpm --filter @web-native-agent/airsup dev
-
 ```
 
-
-
-Peer messaging proof (no ChatGPT UI):
-
-
-
-```bash
-
-cd apps/airsup
-
-pnpm exec tsx scripts/peer-e2e.ts
-
-```
-
-
-
-## Public paths
-
-
-
-- `/` — domain → Connect ChatGPT → plugin URL
-
-- `/plugin/openapi.yaml` — ChatGPT Actions schema
-
-- `/api/plugin/watch` · `/api/plugin/talk` · `/api/plugin/ack` · `/api/plugin/whoami` · `/api/plugin/lookup`
-
-- `/.well-known/agent-card.json` (name: **Supi for …** when connected)
-
-- `/agent/chat` · `/agent/watch` · `/domain/setup`
-
-
-
-## Google Calendar + Gmail (website owner)
-
-
-
-Still available at `/domain/setup` after a classic website connection. Optional for the ChatGPT peer-worker path.
-
-
+Open http://localhost:3000

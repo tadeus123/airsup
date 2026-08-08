@@ -12,8 +12,10 @@ type OnboardResult = {
   chatgptUrl: string;
   schedulePrompt: string;
   pluginUrl: string;
+  mcpUrl?: string;
   plugin: {
     openapiUrl: string;
+    mcpUrl?: string;
     steps: string[];
   };
 };
@@ -64,6 +66,8 @@ export default function SetupPage() {
     setTimeout(() => setCopied(""), 1500);
   }
 
+  const mcpUrl = result?.mcpUrl || result?.plugin?.mcpUrl || result?.pluginUrl || "";
+
   return (
     <main className={`setup${step !== "handle" ? " setup-done" : ""}`}>
       {step === "handle" ? (
@@ -72,7 +76,7 @@ export default function SetupPage() {
           <p className="setup-sub">
             {cleanHandle(handle)
               ? `Others will say: talk to ${cleanHandle(handle)}'s supi`
-              : "No website needed — connect your ChatGPT next."}
+              : "Connect ChatGPT as a plugin — no website needed."}
           </p>
           <form
             className="setup-form"
@@ -105,8 +109,7 @@ export default function SetupPage() {
         <>
           <h1>Connect ChatGPT.</h1>
           <p className="setup-sub">
-            Opens ChatGPT with a prompt that creates your hourly Airsup worker immediately
-            and starts the first run ASAP.
+            Creates your hourly Airsup worker scheduled task immediately.
           </p>
           <p className="setup-sub">
             Handle: <strong>{result.handle}</strong>
@@ -132,7 +135,7 @@ export default function SetupPage() {
               className="setup-copy setup-copy-muted"
               onClick={() => setStep("plugin")}
             >
-              Next — Actions setup
+              Next — add plugin
             </button>
           </div>
         </>
@@ -140,53 +143,41 @@ export default function SetupPage() {
 
       {step === "plugin" && result ? (
         <>
-          <h1>Add Airsup Actions.</h1>
+          <h1>Add the Airsup plugin.</h1>
           <p className="setup-sub">
-            Do <strong>not</strong> use ChatGPT “New Plugin” / MCP / OAuth. Use a Custom GPT →
-            Actions instead.
+            This is a ChatGPT <strong>Developer Mode plugin</strong> (MCP), not a Custom GPT.
           </p>
 
           <ol className="setup-steps">
-            <li>ChatGPT → create a GPT → Configure → Actions → Create new action</li>
+            <li>ChatGPT → Settings → enable <strong>Developer mode</strong></li>
+            <li>ChatGPT → Plugins → <strong>+ New Plugin</strong></li>
             <li>
-              Click <strong>Import from URL</strong> (not “Server URL”, not MCP)
+              Name: <strong>Airsup - {result.handle}</strong>
             </li>
             <li>
-              Paste the schema URL below
+              Connection: <strong>Server URL</strong>
             </li>
+            <li>Paste the Server URL below (token is already included)</li>
             <li>
-              Authentication: <strong>API Key</strong> (not OAuth)
+              Authentication: <strong>None</strong> (not OAuth)
             </li>
-            <li>
-              Auth Type: <strong>Bearer</strong>
-            </li>
-            <li>Paste your API token into the API Key field</li>
-            <li>Save the GPT</li>
+            <li>Check “I understand…” → create</li>
+            <li>In chat: Developer mode → enable Airsup plugin → say talk to konstantin&apos;s supi</li>
           </ol>
 
-          <label className="setup-label">Import from URL (schema)</label>
-          <textarea className="setup-prompt" readOnly value={result.pluginUrl} rows={2} />
+          <label className="setup-label">Server URL (paste into New Plugin)</label>
+          <textarea className="setup-prompt" readOnly value={mcpUrl} rows={3} />
           <button
             type="button"
             className="setup-copy"
-            onClick={() => void copy("plugin", result.pluginUrl)}
+            onClick={() => void copy("plugin", mcpUrl)}
           >
-            {copied === "plugin" ? "Copied" : "Copy Import from URL"}
-          </button>
-
-          <label className="setup-label">API Key (Bearer token)</label>
-          <textarea className="setup-prompt" readOnly value={result.token} rows={2} />
-          <button
-            type="button"
-            className="setup-copy setup-copy-muted"
-            onClick={() => void copy("token", result.token)}
-          >
-            {copied === "token" ? "Copied" : "Copy API Key / token"}
+            {copied === "plugin" ? "Copied" : "Copy Server URL"}
           </button>
 
           <p className="setup-sub">
-            ChatGPT field names: <strong>Import from URL</strong> + <strong>API Key</strong> +{" "}
-            <strong>Bearer</strong>. Ignore Auth URL / Token URL / Client ID — those are OAuth-only.
+            Do not use OAuth / Client ID / Auth URL. Auth = <strong>None</strong>, because your
+            token is in the Server URL.
           </p>
 
           <button

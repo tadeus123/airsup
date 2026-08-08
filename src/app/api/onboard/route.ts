@@ -71,7 +71,7 @@ export async function POST(request: Request) {
         : `registered handle ${peer.handle}`,
       detail: {
         domain: peer.domain || null,
-        pluginUrl: plugin.openapiUrl,
+        mcpUrl: plugin.mcpUrl,
         chatgptUrlHost: "chatgpt.com",
       },
       requestId,
@@ -84,7 +84,9 @@ export async function POST(request: Request) {
       token,
       chatgptUrl,
       schedulePrompt,
-      pluginUrl: plugin.openapiUrl,
+      pluginUrl: plugin.mcpUrl,
+      mcpUrl: plugin.mcpUrl,
+      openapiUrl: plugin.openapiUrl,
       plugin,
     });
   } catch (error) {

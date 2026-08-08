@@ -1,5 +1,5 @@
 {
-  "name": "airsup",
+  "name": "@web-native-agent/airsup",
   "version": "1.0.0",
   "private": true,
   "scripts": {
@@ -10,6 +10,7 @@
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.30.0",
     "@upstash/redis": "^1.35.0",
     "next": "^15.3.4",
     "react": "^19.1.0",

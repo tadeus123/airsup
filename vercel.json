@@ -1,23 +1,25 @@
-{
-  "rewrites": [
-    { "source": "/.well-known/agent-card.json", "destination": "/api/agent-card" },
-    { "source": "/.well-known/agent.json", "destination": "/api/agent-card" },
-    { "source": "/llms.txt", "destination": "/api/llms" },
-    { "source": "/agent-sitemap.xml", "destination": "/api/agent-sitemap" },
-    { "source": "/agent/status.json", "destination": "/api/status" },
-    { "source": "/agent/chat", "destination": "/api/chat" },
-    { "source": "/agent/watch", "destination": "/api/watch" },
-    { "source": "/agent/watch/push", "destination": "/api/watch/push" },
-    { "source": "/plugin/openapi.yaml", "destination": "/api/plugin/openapi" },
-    { "source": "/plugin/openapi.yml", "destination": "/api/plugin/openapi" },
-    { "source": "/a2a/v1", "destination": "/a2a/v1" },
-    { "source": "/a2a/v1/:path*", "destination": "/a2a/v1" },
-    { "source": "/setup", "destination": "/" }
-  ],
-  "crons": [
-    {
-      "path": "/api/knowledge/cron",
-      "schedule": "0 4 * * *"
-    }
-  ]
-}
+{
+  "rewrites": [
+    { "source": "/.well-known/agent-card.json", "destination": "/api/agent-card" },
+    { "source": "/.well-known/agent.json", "destination": "/api/agent-card" },
+    { "source": "/llms.txt", "destination": "/api/llms" },
+    { "source": "/agent-sitemap.xml", "destination": "/api/agent-sitemap" },
+    { "source": "/agent/status.json", "destination": "/api/status" },
+    { "source": "/agent/chat", "destination": "/api/chat" },
+    { "source": "/agent/watch", "destination": "/api/watch" },
+    { "source": "/agent/watch/push", "destination": "/api/watch/push" },
+    { "source": "/plugin/openapi.yaml", "destination": "/api/plugin/openapi" },
+    { "source": "/plugin/openapi.yml", "destination": "/api/plugin/openapi" },
+    { "source": "/mcp", "destination": "/api/mcp" },
+    { "source": "/mcp/:path*", "destination": "/api/mcp" },
+    { "source": "/a2a/v1", "destination": "/a2a/v1" },
+    { "source": "/a2a/v1/:path*", "destination": "/a2a/v1" },
+    { "source": "/setup", "destination": "/" }
+  ],
+  "crons": [
+    {
+      "path": "/api/knowledge/cron",
+      "schedule": "0 4 * * *"
+    }
+  ]
+}
